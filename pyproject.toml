@@ -1,0 +1,16 @@
+[project]
+name = "physical-ai-stl"
+version = "0.0.1"
+description = "Scaffold for STL/STREL monitoring with RTAMT and MoonLight"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "rtamt",
+  "moonlight",
+  "numpy>=1.23,<2.0",
+  "pytest>=7.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+addopts = "-q"
