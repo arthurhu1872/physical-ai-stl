@@ -11,7 +11,7 @@ smooth_max, smooth_min, robustness_bound, stl_always, stl_eventually, stl_and, s
 
 def smooth_max(*args, **kwargs):
     """Placeholder smooth max. Raises NotImplementedError."""
-    raise NotImplementedError("smooth_max is not implemented.")
+    raise NotImplementedError("smooth_max is not implemented
 
 
 def smooth_min(*args, **kwargs):
@@ -27,6 +27,7 @@ def robustness_bound(signal, lower, upper):
 def stl_always(*args, **kwargs):
     """Placeholder for always (globally) operator in differentiable STL."""
     raise NotImplementedError("stl_always is not implemented.")
+
 
 
 def stl_eventually(*args, **kwargs):
