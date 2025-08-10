@@ -60,5 +60,5 @@ def compute_spatiotemporal_robustness(signal_matrix: np.ndarray, lower: float, u
         raise ValueError("signal_matrix must be two-dimensional")
     if signal_matrix.size == 0:
         raise ValueError("signal_matrix must not be empty")
-       margins = upper - signal_matrix
+      margins = np.minimum(signal_matrix - lower, upper - signal_matrix)
     return float(margins.min())
