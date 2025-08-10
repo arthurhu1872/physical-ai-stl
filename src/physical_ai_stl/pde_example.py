@@ -39,10 +39,7 @@ def simulate_diffusion_with_clipping(length: int = 5,
                                      upper: float = 1.0,
                                      initial: np.ndarray | None = None) -> np.ndarray:
     u = simulate_diffusion(length=length, steps=steps, dt=dt, alpha=alpha, initial=initial)
-    # Clip the entire state to the specified bounds.  We clip in-place so that the
-    # returned array respects the specified lower and upper limits for all time steps
-    # and spatial positions.  This includes the initial state as well as the
-    # intermediate states produced by the diffusion solver.
+      # Clip the entire state to the specified bounds.
     np.clip(u, lower, upper, out=u)
     return u
 
