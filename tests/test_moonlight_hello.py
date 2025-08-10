@@ -1,7 +1,7 @@
 from physical_ai_stl.monitors.moonlight_hello import temporal_hello
 
 
-def test_moonlight_temporal_smoke():
+def test_moonlight_temporal_smoke() -> None:
     res = temporal_hello()
     # Ensure res is a 2D array with 2 columns and at least one row
     # res should have attribute ndim and shape if it is a numpy array
