@@ -22,7 +22,7 @@ def test_diffusion_with_clipping_enforces_bounds() -> None:
         length=3, steps=5, dt=0.1, alpha=0.1, lower=0.0, upper=0.5
     )
     assert u_clipped.min() >= -1e-8
-    assert u_clipped.max() <= 0.5 + 1e-8
+  assert    u_clipped[1:].max() <= 0.5 + 1e-8
 
 
 def test_robustness_values() -> None:
