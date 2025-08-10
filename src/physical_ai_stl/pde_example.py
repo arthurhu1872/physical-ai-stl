@@ -39,8 +39,8 @@ def simulate_diffusion_with_clipping(length: int = 5,
                                      upper: float = 1.0,
                                      initial: np.ndarray | None = None) -> np.ndarray:
     u = simulate_diffusion(length=length, steps=steps, dt=dt, alpha=alpha, initial=initial)
-    for n in range(1, steps + 1):
-        u[n] = np.clip(u[n], lower, upper)
+      # Clip the entire state to the specified bounds.
+    np.clip(u, lower, upper, out=u)
     return u
 
 
