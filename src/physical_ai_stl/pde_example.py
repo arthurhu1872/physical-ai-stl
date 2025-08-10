@@ -1,6 +1,7 @@
 """Minimal PDE and robustness example for sprint 1.
 
 
+
 This module implements a 1D diffusion (heat) equation solver and simple
 robustness computations without external STL libraries.
 """
@@ -61,5 +62,4 @@ def compute_spatiotemporal_robustness(signal_matrix: np.ndarray, lower: float, u
         raise ValueError("signal_matrix must be two-dimensional")
     if signal_matrix.size == 0:
         raise ValueError("signal_matrix must not be empty")
-    margins = np.minimum(signal_matrix - lower, upper - signal_matrix)
-  return float(margins.min())
+      margins = np.minimum(signal_matrix - lower, upper - signal_matrix)
