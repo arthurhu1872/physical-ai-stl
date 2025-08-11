@@ -1,8 +1,7 @@
 """Helpers for building and evaluating STL specs with RTAMT (offline)."""
-
 from __future__ import annotations
 
-from typing import Iterable, List, Tuple
+from typing import Iterable
 
 
 def _import_rtamt():
@@ -25,10 +24,28 @@ def stl_always_upper_bound(var: str = "u", u_max: float = 1.0):
     return spec
 
 
-def evaluate_series(spec, var: str, series: Iterable[float], dt: float = 1.0) -> float:
-    """Evaluate robustness for `var` time series against `spec` offline."""
+def stl_response_within(var: str, boundary: str, theta: float, tau: int):
+    """Return spec: always( boundary >= theta -> eventually[0:tau] (var >= theta) )."""
     rtamt = _import_rtamt()
+    spec = rtamt.StlDiscreteTimeSpecification()
+    spec.declare_var(var, "float")
+    spec.declare_var(boundary, "float")
+    spec.spec = (
+        f"always ( ({boundary} >= {float(theta)}) -> eventually[0:{int(tau)}] ({var} >= {float(theta)}) )"
+    )
+    spec.parse()
+    return spec
+
+
+def evaluate_series(spec, var: str, series: Iterable[float], dt: float = 1.0) -> float:
+    """Evaluate robustness for a single variable time series against spec."""
+    # Build (time, value) pairs
     ts = [(i * dt, float(v)) for i, v in enumerate(series)]
-    # RTAMT wants parallel arrays of names and series
-    rob = spec.evaluate([var], [ts])[0][1]
-    return float(rob)
+    # RTAMT Python API accepts dicts of name->series
+    rob = spec.evaluate({var: ts})
+    # Some versions return a list/tuple; make it scalar
+    try:
+        return float(rob)
+    except Exception:
+        # fall back to first element
+        return float(rob[0] if isinstance(rob, (list, tuple)) else rob)
