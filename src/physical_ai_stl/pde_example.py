@@ -16,16 +16,14 @@ def simulate_diffusion(
     alpha: float = 0.1,
     initial: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Explicit 1D diffusion with zero‑Neumann boundaries.
-
-    u^{n+1}_i = u^n_i + alpha*dt * (u^n_{i-1} - 2 u^n_i + u^n_{i+1})
+    """Explicit finite-difference 1D diffusion with zero‑Neumann boundaries.
 
     Parameters
     ----------
     length : int
         Number of spatial points (>= 2 recommended).
     steps : int
-        Number of time steps to simulate.
+        Number of time steps to simulate (>= 0 is allowed).
     dt : float
         Time step.
     alpha : float
@@ -38,8 +36,11 @@ def simulate_diffusion(
     np.ndarray
         Array of shape (steps+1, length) containing u[0],...,u[steps].
     """
-    if length <= 0 or steps <= 0:
-        raise ValueError("length and steps must be positive")
+    if length <= 0:
+        raise ValueError("length must be positive")
+    if steps < 0:
+        raise ValueError("steps must be non-negative")
+
     u = np.zeros((steps + 1, length), dtype=float)
     if initial is not None:
         initial = np.asarray(initial, dtype=float)
@@ -50,14 +51,20 @@ def simulate_diffusion(
         # simple default: single hot spot at the left boundary
         u[0, 0] = 1.0
 
+    if steps == 0:
+        return u
+
     diff = alpha * dt
     for n in range(steps):
         # interior updates (explicit finite difference)
         for i in range(1, length - 1):
             u[n + 1, i] = u[n, i] + diff * (u[n, i - 1] - 2.0 * u[n, i] + u[n, i + 1])
         # zero‑Neumann boundaries via copy from the nearest interior cell
-        u[n + 1, 0] = u[n + 1, 1] if length > 1 else u[n, 0]
-        u[n + 1, -1] = u[n + 1, -2] if length > 1 else u[n, -1]
+        if length > 1:
+            u[n + 1, 0] = u[n + 1, 1]
+            u[n + 1, -1] = u[n + 1, -2]
+        else:
+            u[n + 1, 0] = u[n, 0]
     return u
 
 
@@ -72,10 +79,10 @@ def simulate_diffusion_with_clipping(
 ) -> np.ndarray:
     """Same as :func:`simulate_diffusion` but clip after each step to [lower, upper]."""
     u = np.zeros((steps + 1, length), dtype=float)
-    # initialise
+    # initialize u[0]
     init = None if initial is None else np.asarray(initial, dtype=float)
     u[0] = simulate_diffusion(length, 0, dt, alpha, init)[0]
-    # simulate stepwise with clipping
+
     for n in range(steps):
         nxt = simulate_diffusion(length, 1, dt, alpha, u[n])[1]
         np.clip(nxt, lower, upper, out=nxt)
@@ -97,12 +104,24 @@ def compute_robustness(signal: np.ndarray, lower: float, upper: float) -> float:
     return float(margins.min())
 
 
-def compute_spatiotemporal_robustness(signal_matrix: np.ndarray, lower: float, upper: float) -> float:
-    """Return min robustness over a 2D (time × space) matrix for staying within bounds."""
+def compute_spatiotemporal_robustness(
+    signal_matrix: np.ndarray, lower: float, upper: float, ignore_initial: bool = True
+) -> float:
+    """Return min robustness over a 2D (time × space) matrix for staying within bounds.
+
+    By default, ignores the first row (t=0) to match “post‑initial” STL checks.
+    """
     mat = np.asarray(signal_matrix, dtype=float)
     if mat.ndim != 2:
         raise ValueError("signal_matrix must be two-dimensional")
     if mat.size == 0:
         raise ValueError("signal_matrix must not be empty")
+
+    if ignore_initial and mat.shape[0] > 0:
+        mat = mat[1:]
+    if mat.size == 0:
+        # if only one row existed, fall back to using the original matrix
+        mat = np.asarray(signal_matrix, dtype=float)
+
     margins = np.minimum(mat - lower, upper - mat)
     return float(margins.min())
