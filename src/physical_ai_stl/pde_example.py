@@ -77,12 +77,19 @@ def simulate_diffusion_with_clipping(
     upper: float = 1.0,
     initial: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Same as :func:`simulate_diffusion` but clip after each step to [lower, upper]."""
+    """Same as :func:`simulate_diffusion` but clip *every* frame to [lower, upper].
+
+    The initial state (t=0) is also clipped so tests that check the
+    whole tensor—including the first row—pass deterministically.
+    """
     u = np.zeros((steps + 1, length), dtype=float)
-    # initialize u[0]
+
+    # initialize and clip u[0]
     init = None if initial is None else np.asarray(initial, dtype=float)
     u[0] = simulate_diffusion(length, 0, dt, alpha, init)[0]
+    np.clip(u[0], lower, upper, out=u[0])
 
+    # step + clip
     for n in range(steps):
         nxt = simulate_diffusion(length, 1, dt, alpha, u[n])[1]
         np.clip(nxt, lower, upper, out=nxt)
