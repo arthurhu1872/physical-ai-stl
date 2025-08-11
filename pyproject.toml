@@ -5,10 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "physical-ai-stl"
 version = "0.1.0"
-description = "Scaffold for STL/STREL monitoring with simple PDE examples"
+description = "STL/STREL monitoring + minimal PDE demos (CI-light, research-heavy locally)"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["numpy>=1.23,<2.0"]
+dependencies = [
+  "numpy>=1.23,<2.0"
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -26,5 +28,6 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
+# Keep it minimal in CI; we only check tests anyway.
 select = ["E", "F"]
-ignore = ["E501", "E203", "W503"]
+ignore = ["E203", "E501"]
