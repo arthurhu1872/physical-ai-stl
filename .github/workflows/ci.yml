@@ -1,0 +1,30 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+      - name: Lint with ruff
+        run: |
+          source .venv/bin/activate
+          ruff src/stlai src/stlai/tests
+      - name: Run tests
+        run: |
+          source .venv/bin/activate
+          pytest -q src/stlai/tests
