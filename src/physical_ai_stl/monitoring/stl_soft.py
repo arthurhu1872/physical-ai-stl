@@ -1,107 +1,50 @@
-"""Differentiable soft semantics for Signal Temporal Logic.
+"""Differentiable soft semantics for Signal Temporal Logic (temporal only).
 
-This module implements smoothed versions of the min/max operators and
-predicates used to compute robustness for STL specifications.  Soft
-approximations allow gradients to propagate through logic terms so
-that STL penalties can be used directly in neural network training
-loops.  We also include a simple hinge penalty to encourage positive
-robustness with a safety margin.
+We provide:
+- softmin / softmax,
+- predicate "u <= c" as a (signed) margin,
+- temporal always/eventually over time axis,
+- a simple penalty module that encourages positive robustness.
 """
 
 from __future__ import annotations
-
 import torch
 from torch import nn
 
 
 def softmin(x: torch.Tensor, temp: float = 0.1, dim: int = -1) -> torch.Tensor:
-    """Smooth approximation of the minimum operator.
-
-    Uses the log-sum-exp trick: ``min(x) ≈ −temp * logsumexp(−x / temp)``.
-
-    Parameters
-    ----------
-    x : torch.Tensor
-        Input tensor.
-    temp : float
-        Temperature parameter controlling smoothness (smaller = sharper).
-    dim : int
-        Dimension over which to reduce.
-
-    Returns
-    -------
-    torch.Tensor
-        Approximated minimum along ``dim``.
-    """
-    return -torch.logsumexp(-x / temp, dim=dim) * temp
+    """Smooth approximation of min using log-sum-exp."""
+    return -(temp * torch.logsumexp(-x / temp, dim=dim))
 
 
 def softmax(x: torch.Tensor, temp: float = 0.1, dim: int = -1) -> torch.Tensor:
-    """Smooth approximation of the maximum operator.
-
-    Uses the log-sum-exp trick: ``max(x) ≈ temp * logsumexp(x / temp)``.
-
-    Parameters
-    ----------
-    x : torch.Tensor
-        Input tensor.
-    temp : float
-        Temperature parameter controlling smoothness (smaller = sharper).
-    dim : int
-        Dimension over which to reduce.
-
-    Returns
-    -------
-    torch.Tensor
-        Approximated maximum along ``dim``.
-    """
-    return torch.logsumexp(x / temp, dim=dim) * temp
+    """Smooth approximation of max using log-sum-exp."""
+    return temp * torch.logsumexp(x / temp, dim=dim)
 
 
-def pred_leq(signal: torch.Tensor, threshold: float) -> torch.Tensor:
-    """Robustness for predicate ``signal ≤ threshold``.
-
-    Positive values indicate satisfaction with margin equal to ``threshold - signal``.
-    """
-    return threshold - signal
+def pred_leq(u: torch.Tensor, c: float) -> torch.Tensor:
+    """Return per-time margin for (u <= c): margin = c - u (positive when satisfied)."""
+    return (torch.as_tensor(c, dtype=u.dtype, device=u.device) - u)
 
 
-def pred_geq(signal: torch.Tensor, threshold: float) -> torch.Tensor:
-    """Robustness for predicate ``signal ≥ threshold``.
-
-    Positive values indicate satisfaction with margin equal to ``signal - threshold``.
-    """
-    return signal - threshold
+def always(margins: torch.Tensor, temp: float = 0.1, time_dim: int = -1) -> torch.Tensor:
+    """Soft-G over time: approximate min over the time dimension."""
+    return softmin(margins, temp=temp, dim=time_dim)
 
 
-def always(robustness: torch.Tensor, temp: float = 0.1, dim: int = -1) -> torch.Tensor:
-    """Smooth approximation of the temporal ``always`` operator.
-
-    Performs a soft minimum over the specified dimension.
-    """
-    return softmin(robustness, temp=temp, dim=dim)
-
-
-def eventually(robustness: torch.Tensor, temp: float = 0.1, dim: int = -1) -> torch.Tensor:
-    """Smooth approximation of the temporal ``eventually`` operator.
-
-    Performs a soft maximum over the specified dimension.
-    """
-    return softmax(robustness, temp=temp, dim=dim)
+def eventually(margins: torch.Tensor, temp: float = 0.1, time_dim: int = -1) -> torch.Tensor:
+    """Soft-F over time: approximate max over the time dimension."""
+    return softmax(margins, temp=temp, dim=time_dim)
 
 
 class STLPenalty(nn.Module):
-    """Hinge penalty encouraging positive robustness.
+    """Hinge-like penalty that drives robustness positive with a margin."""
 
-    Given a robustness scalar ``rho``, returns ``ReLU(margin - rho)``.  When
-    robustness exceeds the margin, the penalty is zero.  Otherwise it
-    penalises violations and near-violations of the specification.
-    """
-
-    def __init__(self, margin: float = 0.0) -> None:
+    def __init__(self, weight: float = 1.0, margin: float = 0.0) -> None:
         super().__init__()
-        self.margin = margin
+        self.weight = float(weight)
+        self.margin = float(margin)
 
     def forward(self, robustness: torch.Tensor) -> torch.Tensor:
-        # If robustness is a vector, take mean penalty
-        return torch.relu(self.margin - robustness).mean()
+        # Penalize negative robustness (violations) with a softplus
+        return torch.nn.functional.softplus(self.margin - robustness).mean() * self.weight
