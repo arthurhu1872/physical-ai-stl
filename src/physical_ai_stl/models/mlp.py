@@ -1,8 +1,10 @@
 """Simple MLP used in PINN examples."""
 from __future__ import annotations
-from typing import Iterable, Sequence
+
+from typing import Sequence
 import torch
 import torch.nn as nn
+
 
 class MLP(nn.Module):
     def __init__(
