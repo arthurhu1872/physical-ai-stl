@@ -105,23 +105,13 @@ def compute_robustness(signal: np.ndarray, lower: float, upper: float) -> float:
 
 
 def compute_spatiotemporal_robustness(
-    signal_matrix: np.ndarray, lower: float, upper: float, ignore_initial: bool = True
+    signal_matrix: np.ndarray, lower: float, upper: float
 ) -> float:
-    """Return min robustness over a 2D (time × space) matrix for staying within bounds.
-
-    By default, ignores the first row (t=0) to match “post‑initial” STL checks.
-    """
+    """Return min robustness over a 2D (time × space) matrix for staying within bounds."""
     mat = np.asarray(signal_matrix, dtype=float)
     if mat.ndim != 2:
         raise ValueError("signal_matrix must be two-dimensional")
     if mat.size == 0:
         raise ValueError("signal_matrix must not be empty")
-
-    if ignore_initial and mat.shape[0] > 0:
-        mat = mat[1:]
-    if mat.size == 0:
-        # if only one row existed, fall back to using the original matrix
-        mat = np.asarray(signal_matrix, dtype=float)
-
     margins = np.minimum(mat - lower, upper - mat)
     return float(margins.min())
