@@ -1,21 +1,22 @@
 """PDE residual + BC/IC for the 1D diffusion equation (PINN)."""
 from __future__ import annotations
+
 import torch
-from typing import Tuple
 from ..models.mlp import MLP
 
+
 def pde_residual(model: MLP, coords: torch.Tensor, alpha: float = 0.1) -> torch.Tensor:
-    """Return residual u_t - alpha * u_xx at flattened coords (x, t)."""
+    """Residual u_t - alpha * u_xx at flattened coords (x, t)."""
     coords = coords.requires_grad_(True)
-    u = model(coords)                      # (N,1)
-    # grads
+    u = model(coords)  # (N,1)
     du = torch.autograd.grad(u, coords, grad_outputs=torch.ones_like(u), create_graph=True)[0]
     u_x = du[:, 0:1]
     u_t = du[:, 1:2]
-    # second derivative wrt x
-    d2u_dx2 = torch.autograd.grad(u_x, coords, grad_outputs=torch.ones_like(u_x), create_graph=True)[0][:, 0:1]
-    res = u_t - alpha * d2u_dx2
-    return res
+    u_xx = torch.autograd.grad(u_x, coords, grad_outputs=torch.ones_like(u_x), create_graph=True)[0][
+        :, 0:1
+    ]
+    return u_t - alpha * u_xx
+
 
 def boundary_loss(
     model: MLP,
@@ -23,9 +24,9 @@ def boundary_loss(
     x_right: float = 1.0,
     t_min: float = 0.0,
     t_max: float = 1.0,
+    device: torch.device | str = "cpu",
     n_boundary: int = 256,
-    n_initial: int = 256,
-    device: str | torch.device = "cpu",
+    n_initial: int = 512,
 ) -> torch.Tensor:
     """Dirichlet BC (u=0 at x=left/right) + sinusoidal IC at t=0."""
     t = torch.rand(n_boundary, 1, device=device) * (t_max - t_min) + t_min
