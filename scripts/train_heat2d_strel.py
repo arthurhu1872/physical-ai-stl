@@ -1,22 +1,23 @@
 import os
-from pathlib import Path
+import numpy as np
 import torch
 from torch import optim
 from tqdm import trange
-import numpy as np
 
 from physical_ai_stl.models.mlp import MLP
 from physical_ai_stl.training.grids import grid2d
 from physical_ai_stl.physics.heat2d import residual_heat2d, bc_ic_heat2d
 
+
 def compute_gradmag(u: torch.Tensor) -> np.ndarray:
-    """Compute gradient magnitude of a 2D field u(x, y) (simple central differences)."""
+    """Gradient magnitude of a 2D field (central differences)."""
     u_np = u.detach().cpu().numpy()
     gx = np.zeros_like(u_np)
     gy = np.zeros_like(u_np)
     gx[1:-1, :] = 0.5 * (u_np[2:, :] - u_np[:-2, :])
     gy[:, 1:-1] = 0.5 * (u_np[:, 2:] - u_np[:, :-2])
     return np.sqrt(gx * gx + gy * gy)
+
 
 def main() -> None:
     os.makedirs("results", exist_ok=True)
@@ -46,12 +47,16 @@ def main() -> None:
     # Save a couple frames for plotting/audits
     with torch.no_grad():
         for k in [0, T.shape[-1] // 2, T.shape[-1] - 1]:
-            inp = torch.stack([X[:, :, k].reshape(-1), Y[:, :, k].reshape(-1), T[:, :, k].reshape(-1)], dim=-1)
+            inp = torch.stack(
+                [X[:, :, k].reshape(-1), Y[:, :, k].reshape(-1), T[:, :, k].reshape(-1)], dim=-1
+            )
             u = model(inp).reshape(X.shape[0], X.shape[1])
             np.save(f"results/heat2d_t{k}.npy", u.numpy())
-            # Simple figure: gradient magnitude highlight
-            gradmag = compute_gradmag(u)
+
+            # Simple figure: gradient magnitude
             import matplotlib.pyplot as plt
+
+            gradmag = compute_gradmag(u)
             plt.figure()
             plt.imshow(gradmag, origin="lower")
             plt.colorbar(label="|∇u|")
@@ -60,6 +65,7 @@ def main() -> None:
             plt.close()
 
     print("Saved frames to results/ and figs/")
+
 
 if __name__ == "__main__":
     main()
