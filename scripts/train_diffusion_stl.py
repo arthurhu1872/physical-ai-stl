@@ -1,100 +1,73 @@
 import os
-import torch
-from tqdm import trange
 from pathlib import Path
+import torch
+from torch import nn, optim
+from tqdm import trange
 
-from src.physical_ai_stl.models.mlp import MLP
-from src.physical_ai_stl.training.grids import grid1d
-from src.physical_ai_stl.physics.diffusion1d import pde_residual, boundary_loss
-from src.physical_ai_stl.monitoring.stl_soft import pred_leq, always, STLPenalty
-
+from physical_ai_stl.models.mlp import MLP
+from physical_ai_stl.training.grids import grid1d
+from physical_ai_stl.physics.diffusion1d import pde_residual, boundary_loss
+from physical_ai_stl.monitoring.stl_soft import pred_leq, always, STLPenalty
 
 def seed_everything(seed: int = 0) -> None:
-    """Set random seeds for reproducibility."""
-    import random
-    import numpy as np
-
+    import random, numpy as np
+    torch.manual_seed(seed)
     random.seed(seed)
     np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-
 
 def main() -> None:
-    """Train a 1D diffusion PINN with an STL safety specification."""
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     seed_everything(0)
+    os.makedirs("results", exist_ok=True)
 
-    # Hyperparameters
-    alpha = 0.1  # diffusion coefficient
-    n_x, n_t = 128, 101  # spatial and temporal resolution
-    epochs = 3000
-    lr = 1e-3
-    lambda_stl = 1.0  # weight for STL penalty
-    temp = 0.1  # temperature for softmin
-    u_max = 1.0  # safety threshold (u <= u_max)
-    margin = 0.05  # robustness margin
+    device = "cpu"
+    n_x, n_t = 128, 64
+    X, T, XT = grid1d(n_x=n_x, n_t=n_t, device=device)
 
-    # Model and optimizer
-    model = MLP(in_dim=2, out_dim=1, hidden=(128, 128, 128)).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    model = MLP(in_dim=2, out_dim=1, hidden=(64, 64, 64)).to(device)
+    opt = optim.Adam(model.parameters(), lr=2e-3)
 
-    # Generate grid
-    X, T, _ = grid1d(n_x=n_x, n_t=n_t, device=device)
+    alpha = 0.1
+    u_max = 1.0
+    stl_weight = 0.5
+    penalty = STLPenalty(weight=stl_weight, margin=0.0)
 
-    # STL penalty function
-    stl_penalty = STLPenalty(margin=margin)
+    epochs = 200
+    batch = 4096
 
-    for epoch in trange(epochs, desc="Training Week1"):
-        optimizer.zero_grad()
+    for _ in trange(epochs, desc="train-1d-diffusion-stl"):
+        # sample interior points
+        idx = torch.randint(0, XT.shape[0], (batch,), device=device)
+        coords = XT[idx]
+        res = pde_residual(model, coords, alpha=alpha)
+        loss_pde = res.square().mean()
 
-        # Physics-informed loss (PDE residual)
-        res = pde_residual(None, X, T, model, alpha=alpha)
-        loss_pde = (res ** 2).mean()
+        # BC/IC
+        loss_bcic = boundary_loss(model, device=device)
 
-        # Boundary and initial condition loss
-        loss_bc = boundary_loss(model, device=device)
+        # Temporal STL: G (mean_x u <= u_max)
+        with torch.no_grad():
+            # build a dense rollout on the grid for the STL loss
+            inp = torch.stack([X.reshape(-1), T.reshape(-1)], dim=-1)
+        u = model(inp).reshape(n_x, n_t)          # u(x,t)
+        u_mean = u.mean(dim=0)                    # mean over x -> series in t
+        margins = pred_leq(u_mean, u_max)         # c - u(t)
+        rob = always(margins, temp=0.1, time_dim=0)
+        loss_stl = penalty(rob)
 
-        # STL safety specification: always(u <= u_max) over time for each spatial point
-        # Compute robustness using soft semantics
-        xt = torch.stack([X.reshape(-1), T.reshape(-1)], dim=-1).requires_grad_(True)
-        u_pred = model(xt).reshape(n_x, n_t)
-        r_t = pred_leq(u_pred, u_max)  # robustness per time step
-        r_x = always(r_t, temp=temp, dim=1)  # aggregate over time via softmin
-        robustness = r_x.mean()  # mean over spatial points
-
-        loss_stl = stl_penalty(robustness)
-
-        # Total loss
-        loss = loss_pde + loss_bc + lambda_stl * loss_stl
+        loss = loss_pde + loss_bcic + loss_stl
+        opt.zero_grad()
         loss.backward()
-        optimizer.step()
+        opt.step()
 
-        # Logging every 200 epochs
-        if epoch % 200 == 0:
-            print(
-                f"epoch {epoch:04d} | total={loss.item():.4e} | pde={loss_pde.item():.4e} | bc={loss_bc.item():.4e} | stl={loss_stl.item():.4e}"
-            )
-
-    # Save results for evaluation
+    # Save a small artifact for the audit script
     with torch.no_grad():
-        xt = torch.stack([X.reshape(-1), T.reshape(-1)], dim=-1)
-        u_out = model(xt).reshape(n_x, n_t).detach().cpu()
-
-    Path("results").mkdir(exist_ok=True, parents=True)
+        inp = torch.stack([X.reshape(-1), T.reshape(-1)], dim=-1)
+        u = model(inp).reshape(n_x, n_t)
     torch.save(
-        {
-            "u": u_out,
-            "X": X.cpu(),
-            "T": T.cpu(),
-            "u_max": u_max,
-            "alpha": alpha,
-        },
+        {"u": u.cpu(), "X": X.cpu(), "T": T.cpu(), "u_max": float(u_max)},
         "results/diffusion_week1.pt",
     )
-    print("Saved results to results/diffusion_week1.pt")
-
+    print("Saved: results/diffusion_week1.pt")
 
 if __name__ == "__main__":
     main()
