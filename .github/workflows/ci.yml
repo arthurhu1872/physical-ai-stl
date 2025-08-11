@@ -29,9 +29,10 @@ jobs:
       - name: Lint (ruff)
         run: |
           source .venv/bin/activate
+          # Keep linting light & deterministic in CI
           ruff check tests
 
       - name: Run tests
         run: |
           source .venv/bin/activate
-          pytest -q tests --disable-warnings
+          pytest -q
