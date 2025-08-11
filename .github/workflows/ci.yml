@@ -2,9 +2,12 @@ name: ci
 on:
   push:
   pull_request:
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
     steps:
       - uses: actions/checkout@v4
 
@@ -17,16 +20,18 @@ jobs:
         run: |
           python -m venv .venv
           source .venv/bin/activate
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -e .
+          ruff --version
+          python -V
 
       - name: Lint (ruff)
         run: |
           source .venv/bin/activate
-          ruff src/stlai tests
+          ruff check tests
 
       - name: Run tests
         run: |
           source .venv/bin/activate
-          pytest -q tests
+          pytest -q tests --disable-warnings
