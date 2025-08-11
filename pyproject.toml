@@ -1,15 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "physical-ai-stl"
-version = "0.0.1"
-description = "Scaffold for STL/STREL monitoring with RTAMT and MoonLight"
+version = "0.1.0"
+description = "Scaffold for STL/STREL monitoring with simple PDE examples"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-  "rtamt",
-  "moonlight",
-  "numpy>=1.23,<2.0",
-  "pytest>=7.0",
+  "numpy>=1.23,<2.0"
 ]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["physical_ai_stl*", "stlai*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
