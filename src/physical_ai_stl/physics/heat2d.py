@@ -1,8 +1,9 @@
 """PDE residual + BC/IC for the 2D heat equation (PINN)."""
 from __future__ import annotations
+
 import torch
-from typing import Tuple
 from ..models.mlp import MLP
+
 
 def residual_heat2d(model: MLP, coords: torch.Tensor, alpha: float = 0.1) -> torch.Tensor:
     """Residual u_t - alpha * (u_xx + u_yy) for coords (x,y,t)."""
@@ -13,17 +14,21 @@ def residual_heat2d(model: MLP, coords: torch.Tensor, alpha: float = 0.1) -> tor
     u_y = du[:, 1:2]
     u_t = du[:, 2:3]
     u_xx = torch.autograd.grad(u_x, coords, torch.ones_like(u_x), create_graph=True)[0][:, 0:1]
-    u_yy = torch.autograd.grad(u_y, coords, torch.ones_like(u_y), create_graph=True)[0][:, 1:1+1]
+    u_yy = torch.autograd.grad(u_y, coords, torch.ones_like(u_y), create_graph=True)[0][:, 1:2]
     return u_t - alpha * (u_xx + u_yy)
+
 
 def bc_ic_heat2d(
     model: MLP,
-    x_min: float = 0.0, x_max: float = 1.0,
-    y_min: float = 0.0, y_max: float = 1.0,
-    t_min: float = 0.0, t_max: float = 1.0,
+    x_min: float = 0.0,
+    x_max: float = 1.0,
+    y_min: float = 0.0,
+    y_max: float = 1.0,
+    t_min: float = 0.0,
+    t_max: float = 1.0,
+    device: torch.device | str = "cpu",
     n_boundary: int = 512,
     n_initial: int = 512,
-    device: str | torch.device = "cpu",
 ) -> torch.Tensor:
     """Dirichlet boundaries (u=0 on all sides) + Gaussian bump IC at t=0."""
     t = torch.rand(n_boundary, 1, device=device) * (t_max - t_min) + t_min
