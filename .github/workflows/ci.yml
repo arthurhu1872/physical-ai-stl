@@ -6,8 +6,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
     steps:
       - uses: actions/checkout@v4
 
@@ -23,13 +21,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -e .
-          ruff --version
-          python -V
 
       - name: Lint (ruff)
         run: |
           source .venv/bin/activate
-          # Keep linting light & deterministic in CI
           ruff check tests
 
       - name: Run tests
