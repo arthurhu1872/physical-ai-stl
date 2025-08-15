@@ -1,3 +1,5 @@
+"""Train heat2d PINN and optionally audit with a MoonLight spec."""
+
 import argparse
 from pathlib import Path
 
