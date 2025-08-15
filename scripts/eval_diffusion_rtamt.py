@@ -1,5 +1,8 @@
-import torch
+"""Evaluate RTAMT robustness for a saved diffusion PINN checkpoint."""
 
+from __future__ import annotations
+
+import torch
 from physical_ai_stl.monitoring.rtamt_monitor import (
     stl_always_upper_bound,
     evaluate_series,
