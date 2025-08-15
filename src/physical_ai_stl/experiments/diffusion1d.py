@@ -1,4 +1,7 @@
+"""Training loop for a 1D diffusion PINN with optional STL penalty."""
+
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Dict, Any
 import torch
@@ -9,6 +12,8 @@ from ..physics.diffusion1d import pde_residual, boundary_loss
 from ..monitoring.stl_soft import pred_leq, always, STLPenalty
 from ..utils.seed import seed_everything
 from ..utils.logger import CSVLogger
+
+__all__ = ["Diffusion1DConfig", "run_diffusion1d"]
 
 @dataclass
 class Diffusion1DConfig:
@@ -50,7 +55,8 @@ def run_diffusion1d(cfg_dict: Dict[str, Any]) -> str:
         tag=cfg_dict.get("tag", "run"),
         seed=cfg_dict.get("seed", 0),
     )
-    seed_everything(cfg.seed); device = "cpu"
+    seed_everything(cfg.seed)
+    device = "cpu"
     X, T, XT = grid1d(n_x=cfg.n_x, n_t=cfg.n_t, device=device)
     model = MLP(in_dim=2, out_dim=1, hidden=cfg.hidden, activation=_activation(cfg.activation)).to(device)
     opt = optim.Adam(model.parameters(), lr=cfg.lr)
@@ -62,7 +68,8 @@ def run_diffusion1d(cfg_dict: Dict[str, Any]) -> str:
         res = pde_residual(model, coords, alpha=cfg.alpha)
         loss_pde = res.square().mean()
         loss_bcic = boundary_loss(model, device=device)
-        loss_stl = torch.tensor(0.0); rob = torch.tensor(0.0)
+        loss_stl = torch.tensor(0.0)
+        rob = torch.tensor(0.0)
         if penalty is not None:
             with torch.no_grad():
                 inp = torch.stack([X.reshape(-1), T.reshape(-1)], dim=-1)
@@ -72,7 +79,9 @@ def run_diffusion1d(cfg_dict: Dict[str, Any]) -> str:
             rob = always(margins, temp=cfg.stl_temp, time_dim=0)
             loss_stl = penalty(rob)
         loss = loss_pde + loss_bcic + loss_stl
-        opt.zero_grad(); loss.backward(); opt.step()
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
         logger.append([epoch, float(loss), float(loss_pde), float(loss_bcic), float(loss_stl), float(rob)])
     with torch.no_grad():
         inp = torch.stack([X.reshape(-1), T.reshape(-1)], dim=-1)
