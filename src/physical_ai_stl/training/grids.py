@@ -1,6 +1,8 @@
 """Grid generation utilities for PDE examples."""
 from __future__ import annotations
+
 from typing import Tuple
+
 import torch
 
 def grid1d(
@@ -33,3 +35,6 @@ def grid2d(
     X, Y, T = torch.meshgrid(x, y, t, indexing="ij")
     XYT = torch.stack([X.reshape(-1), Y.reshape(-1), T.reshape(-1)], dim=-1)
     return X, Y, T, XYT
+
+
+__all__ = ["grid1d", "grid2d"]
