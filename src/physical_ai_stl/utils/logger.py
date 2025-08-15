@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import csv
-from typing import Iterable, List, Optional
+from typing import Iterable, Optional
 
 class CSVLogger:
     """Tiny CSV logger that appends one row per epoch."""
@@ -16,3 +16,6 @@ class CSVLogger:
     def append(self, row: Iterable[object]) -> None:
         with open(self.path, "a", newline="") as f:
             csv.writer(f).writerow(list(row))
+
+
+__all__ = ["CSVLogger"]
