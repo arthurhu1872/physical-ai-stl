@@ -19,6 +19,8 @@ Accompanying tests in `tests/test_pde_example.py` verify the solver’s shape, t
 
 Although we implemented our own solver for this sprint, the long‑term plan is to leverage existing physics‑ML libraries that support neural ODEs/PDEs and physics–informed neural networks (PINNs).  Based on the instructor’s suggestions and preliminary reading, the following frameworks were considered:
 
+See also [framework_survey.md](framework_survey.md) for a concise table.
+
 ### Neuromancer
 
 Neuromancer is a PyTorch library for differentiable programming developed by PNNL.  It provides a high‑level API for formulating neural ODEs/PDEs, PINNs and constrained optimization problems.  Key features include:
