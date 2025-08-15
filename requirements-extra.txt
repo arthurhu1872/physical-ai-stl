@@ -1,6 +1,11 @@
+# Optional heavy dependencies for experiments and monitoring.
 torch
 matplotlib
 tqdm
 pyyaml
 rtamt
 moonlight
+neuromancer
+torchphysics
+physicsnemo
+spatial-spec
