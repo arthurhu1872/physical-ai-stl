@@ -1,4 +1,5 @@
-import os
+"""Train diffusion1d PINN with an STL penalty."""
+
 import argparse
 from pathlib import Path
 
