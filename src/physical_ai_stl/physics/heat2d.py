@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import torch
+
 from ..models.mlp import MLP
 
 
@@ -48,3 +49,6 @@ def bc_ic_heat2d(
     target = torch.exp(-50.0 * ((x0 - 0.5).square() + (y0 - 0.5).square()))
     loss_ic = (model(ic_coords) - target).square().mean()
     return loss_b + loss_ic
+
+
+__all__ = ["residual_heat2d", "bc_ic_heat2d"]
