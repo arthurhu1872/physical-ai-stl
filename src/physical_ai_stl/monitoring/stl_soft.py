@@ -8,6 +8,7 @@ We provide:
 """
 
 from __future__ import annotations
+
 import torch
 from torch import nn
 
@@ -48,3 +49,13 @@ class STLPenalty(nn.Module):
     def forward(self, robustness: torch.Tensor) -> torch.Tensor:
         # Penalize negative robustness (violations) with a softplus
         return torch.nn.functional.softplus(self.margin - robustness).mean() * self.weight
+
+
+__all__ = [
+    "softmin",
+    "softmax",
+    "pred_leq",
+    "always",
+    "eventually",
+    "STLPenalty",
+]
