@@ -1,9 +1,6 @@
 """Minimal 1D diffusion (heat) example + simple robustness utilities.
 
-This file is intentionally dependency-light so it can run in CI without
-extra packages. The goal is to provide a tiny, correct reference for
-Week 1–2 tests.
-"""
+This file is intentionally dependency-light so it can run in CI without extra packages. The goal is to provide a tiny, correct reference for Week 1–2 tests."""
 from __future__ import annotations
 
 import numpy as np
@@ -122,3 +119,11 @@ def compute_spatiotemporal_robustness(
         raise ValueError("signal_matrix must not be empty")
     margins = np.minimum(mat - lower, upper - mat)
     return float(margins.min())
+
+
+__all__ = [
+    "simulate_diffusion",
+    "simulate_diffusion_with_clipping",
+    "compute_robustness",
+    "compute_spatiotemporal_robustness",
+]
