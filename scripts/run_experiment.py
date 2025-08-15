@@ -1,5 +1,9 @@
+"""Generic wrapper to run experiments from YAML configuration files."""
+
 from __future__ import annotations
-import argparse, os
+
+import argparse
+import os
 from typing import Any, Dict
 
 def _load_yaml(path: str) -> Dict[str, Any]:
