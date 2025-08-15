@@ -1,5 +1,6 @@
 """Minimal MoonLight 'hello' that can be skipped in CI if Java/MoonLight are missing."""
 from __future__ import annotations
+
 import numpy as np
 
 def temporal_hello():
@@ -28,3 +29,6 @@ def temporal_hello():
     # MoonLight returns a list of (time, bool), convert to ndarray
     arr = np.array(out, dtype=float)
     return arr
+
+
+__all__ = ["temporal_hello"]
