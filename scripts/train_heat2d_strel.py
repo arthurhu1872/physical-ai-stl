@@ -10,7 +10,7 @@ from tqdm import trange
 
 from physical_ai_stl.models.mlp import MLP
 from physical_ai_stl.training.grids import grid2d
-from physical_ai_stl.physics.heat2d import heat2d_residual, boundary_loss_2d
+from physical_ai_stl.physics.heat2d import residual_heat2d, bc_ic_heat2d
 from physical_ai_stl.monitoring.moonlight_helper import (
     load_script_from_file,
     get_monitor,
@@ -51,9 +51,9 @@ def main() -> None:
     for _ in trange(args.epochs, desc="train_heat2d_strel"):
         idx = torch.randint(0, XYT.shape[0], (4096,), device=device)
         coords = XYT[idx]
-        res = heat2d_residual(model, coords, alpha=float(args.alpha))
+        res = residual_heat2d(model, coords, alpha=float(args.alpha))
         loss_pde = res.square().mean()
-        loss_bcic = boundary_loss_2d(model, device=device)
+        loss_bcic = bc_ic_heat2d(model, device=device)
         loss = loss_pde + loss_bcic
         opt.zero_grad()
         loss.backward()
