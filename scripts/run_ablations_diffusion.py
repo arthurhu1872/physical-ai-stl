@@ -1,16 +1,27 @@
+"""Run ablation study over STL penalty weights for diffusion1d PINN."""
+
 from __future__ import annotations
-import argparse, csv, os
+
+import argparse
+import csv
+import os
+
 import torch
 from torch import nn, optim
 from tqdm import trange
+
 from physical_ai_stl.models.mlp import MLP
 from physical_ai_stl.training.grids import grid1d
 from physical_ai_stl.physics.diffusion1d import pde_residual, boundary_loss
 from physical_ai_stl.monitoring.stl_soft import pred_leq, always, STLPenalty
 
 def _seed(seed: int = 0) -> None:
-    import random, numpy as np
-    torch.manual_seed(seed); random.seed(seed); np.random.seed(seed)
+    import numpy as np
+    import random
+
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
 
 def train_once(stl_weight: float, epochs: int = 100, seed: int = 0) -> float:
     _seed(seed)
@@ -33,7 +44,9 @@ def train_once(stl_weight: float, epochs: int = 100, seed: int = 0) -> float:
         margins = pred_leq(u_mean, u_max)
         rob = always(margins, temp=0.1, time_dim=0)
         loss = loss_pde + loss_bcic + penalty(rob)
-        opt.zero_grad(); loss.backward(); opt.step()
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
     with torch.no_grad():
         inp = torch.stack([X.reshape(-1), T.reshape(-1)], dim=-1)
         u = model(inp).reshape(n_x, n_t)
@@ -51,7 +64,8 @@ def main() -> None:
     rows = [["lambda", "robustness"]]
     for w in args.weights:
         r = train_once(stl_weight=w, epochs=args.epochs, seed=args.seed)
-        rows.append([w, r]); print(f"λ={w} -> robustness={r:.4f}")
+        rows.append([w, r])
+        print(f"λ={w} -> robustness={r:.4f}")
     with open(args.out, "w", newline="") as f:
         csv.writer(f).writerows(rows)
     print(f"Wrote {args.out}")
