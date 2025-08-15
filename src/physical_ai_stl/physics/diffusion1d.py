@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import torch
+
 from ..models.mlp import MLP
 
 
@@ -39,3 +40,6 @@ def boundary_loss(
     target = torch.sin(torch.pi * x)
     loss_ic = (model(ic) - target).square().mean()
     return loss_b + loss_ic
+
+
+__all__ = ["pde_residual", "boundary_loss"]
