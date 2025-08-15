@@ -1,6 +1,7 @@
+"""Plotting helpers for PINN outputs."""
+
 import matplotlib.pyplot as plt
 import torch
-import numpy as np
 
 def plot_u_1d(u: torch.Tensor, X: torch.Tensor, T: torch.Tensor, out: str = "figs/diffusion_heatmap.png") -> None:
     """Plot 1D diffusion field u(x,t) as a heatmap and save to file."""
