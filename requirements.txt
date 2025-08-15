@@ -1,3 +1,4 @@
+# Core dependencies for running tests. Optional packages live in 'requirements-extra.txt' and 'pyproject.toml' extras.
 numpy>=1.23,<2.0
 pytest>=7.0
 ruff>=0.5.6
