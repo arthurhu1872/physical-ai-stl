@@ -14,6 +14,6 @@ To incorporate STL, we added an optional training condition representing the spe
 - **SpaTiaL:** ... we decided not to integrate SpaTiaL at this stage because MoonLight already covers our needs for spatio-temporal monitoring.
 
 ## Next Steps
-- **Complex STL Specifications:** ... e.g., “if a hotspot occurs, it cools down within τ time” during training.
+- **Complex STL Specifications:** ... e.g., "if a hotspot occurs, it cools down within τ time" during training.
 - **Extended Examples:** ... apply logic-enforced PINNs to additional PDEs (Burgers', Navier–Stokes, etc.) to evaluate scalability...
 - **Comparison and Evaluation:** ... quantify the benefit of STL guidance by comparing spec satisfaction and accuracy with vs. without STL penalties, using RTAMT/MoonLight to measure robustness.
