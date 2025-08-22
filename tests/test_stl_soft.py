@@ -2,9 +2,8 @@ import pytest
 
 # Skip these tests if PyTorch is not installed in the environment
 torch = pytest.importorskip("torch")
-import numpy as np
 
-from physical_ai_stl.monitoring import stl_soft as stl
+from physical_ai_stl.monitoring import stl_soft as stl  # noqa: E402
 
 def test_pred_leq_basic():
     u = torch.tensor([0.1, 0.4, 0.5], dtype=torch.float32)
