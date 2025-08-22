@@ -1,0 +1,96 @@
+# .pre-commit-config.yaml
+# Fast, deterministic, notebook-aware, and CI-friendly.
+#
+# Notes for contributors:
+# - Keep hooks FAST; anything heavy (tests, static typing, security scans) should run in CI or as a manual stage.
+# - Ruff's lint (with --fix) MUST run before Ruff's formatter, per Astral's guidance.
+# - When using ruff via pre-commit, set `force-exclude = true` in pyproject.toml to ensure pre-commit respects exclusions
+#   (or use `--force-exclude` below).
+
+minimum_pre_commit_version: "3.6.0"
+
+# Use a modern Python by default in hook environments
+default_language_version:
+  python: python3
+
+# Configuration for pre-commit.ci (autoupdate bot)
+ci:
+  autoupdate_schedule: monthly   # weekly|monthly|quarterly
+  submodules: false
+
+# Global exclusions to keep hooks snappy
+exclude: |
+  (?x)^(
+    docs/_build/        # Sphinx artifacts
+    | .*/__pycache__/
+    | .*/\.ipynb_checkpoints/
+    | .*/\.mypy_cache/
+    | .*/\.pytest_cache/
+    | build/|dist/
+    | .*/node_modules/
+  )
+
+repos:
+  # 1) Hygiene / safety checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        # Preserve Markdown hard line breaks
+        args: [--markdown-linebreak-ext=md]
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ['--maxkb=5000']
+
+  # 2) Ruff (ultra-fast linter + formatter) for .py
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.3
+    hooks:
+      - id: ruff
+        # Apply safe fixes first; fail if it had to modify files so you re-run commit.
+        args: [--fix, --exit-non-zero-on-fix, --force-exclude]
+      - id: ruff-format
+
+  # 3) Markdown formatter (stable + predictable)
+  - repo: https://github.com/hukkin/mdformat
+    rev: 1.0.0
+    hooks:
+      - id: mdformat
+        # GitHub Flavored Markdown support
+        additional_dependencies:
+          - mdformat-gfm==1.0.0
+
+  # 4) Lint Jupyter notebooks with Ruff via nbQA (only .ipynb)
+  - repo: https://github.com/nbQA-dev/nbQA
+    rev: 1.9.1
+    hooks:
+      - id: nbqa-ruff
+        additional_dependencies: ["ruff==0.14.3"]
+        args: ["--fix", "--force-exclude"]
+        files: "\\.ipynb$"
+
+  # 5) Strip notebook outputs to keep diffs clean and repos light
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.8.1
+    hooks:
+      - id: nbstripout
+
+  # 6) Spelling (source & docs only; avoid notebooks)
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
+    hooks:
+      - id: codespell
+        name: codespell (src+docs; no notebooks)
+        args:
+          - --write-changes
+          - --ignore-words=.codespellignorewords.txt
+          - --skip=./.git,./.venv,./build,./dist,./.mypy_cache,./.pytest_cache,./docs/_build,*.ipynb
+        types_or: [python, rst, markdown, yaml, toml, text]

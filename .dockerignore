@@ -1,0 +1,173 @@
+# ===================================================================
+# physical-ai-stl — Docker build context ignore file
+# Goal: keep Docker builds deterministic, fast, and lean by excluding
+#       VCS metadata, editor cruft, caches, large artifacts, datasets,
+#       and experiment outputs while keeping exactly what the Dockerfile
+#       needs to run tests and examples.
+# ===================================================================
+#
+# References:
+# - Docker build best practices & .dockerignore semantics: docs.docker.com
+# - Patterns are gitignore-like; '!' negates; '**' matches across dirs.
+#
+###########################
+# 1) VCS / editors / OS   #
+###########################
+.git
+.github
+.gitattributes
+.gitmodules
+.git-*
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.history/
+*.code-workspace
+
+####################################
+# 2) Python caches / build output  #
+####################################
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+.wheels/
+pip-wheel-metadata/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pytype/
+.pyright/
+.pylint.d/
+.tox/
+.nox/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.cache/
+
+#########################################
+# 3) Virtual envs / local installations #
+#########################################
+.venv/
+venv/
+env/
+ENV/
+.conda/
+.venv*/
+site-packages/
+
+#########################################
+# 4) Secrets & local configuration      #
+#########################################
+*.env
+*.env.*
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*.p12
+*.jks
+*.keystore
+*.credentials
+*.secrets*
+ssh_keys/
+id_rsa*
+id_ed25519*
+
+#########################################
+# 5) Data / artifacts / experiment I/O  #
+#########################################
+# (top-level only; source code under src/ is kept)
+data/
+datasets/
+results/
+figs/
+figures/
+outputs/
+output/
+logs/
+log/
+artifacts/
+checkpoints/
+models/
+runs/
+wandb/
+mlruns/
+lightning_logs/
+ray_results/
+tensorboard/
+tb_logs/
+reports/
+paper/
+manuscript/
+notebooks/
+examples/
+
+# Large file types commonly produced by ML/experiments
+*.np[yz]
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.h5
+*.hdf5
+*.joblib
+*.pkl
+*.pickle
+*.mat
+*.parquet
+*.feather
+*.arrow
+*.orc
+*.zst
+*.xz
+*.bz2
+*.gz
+*.zip
+*.7z
+*.tar
+
+#########################################
+# 6) Notebook caches                    #
+#########################################
+**/.ipynb_checkpoints/
+
+#########################################
+# 7) Docs & site builds (keep source)   #
+#########################################
+docs/_build/
+site/
+build-docs/
+book/_build/
+
+#############################################################
+# 8) SAFETY KEEPERS — required by Dockerfile and workflows  #
+#    These negations ensure we never prune critical inputs. #
+#############################################################
+!Dockerfile
+!.dockerignore
+!pyproject.toml
+!requirements.txt
+!requirements-dev.txt
+!requirements-extra.txt
+!README.md
+!CITATION.cff
+!LICENSE
+!Makefile
+!src/**
+!scripts/**
+!configs/**
+!tests/**
+
+# End of file

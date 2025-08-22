@@ -1,0 +1,11 @@
+# physical-ai-stl — minimal runtime requirements (CS-3860)
+# Python >= 3.10 (enforced in pyproject.toml)
+# Keep this base lean; heavy stacks live in requirements-extra.txt.
+#
+# NumPy notes:
+# - sliding_window_view is required by datasets (introduced in NumPy 1.20.0).
+# - 1.26.4 is the last 1.x release with robust Python 3.12 wheels.
+# - This repo currently uses deprecated aliases np.float/np.int in several modules;
+#   these were removed in NumPy 2.0, so pin <2.0 until the code is updated.
+#   (Once aliases are removed from the codebase, relax to <3.0.)
+numpy>=1.26.4,<2.0

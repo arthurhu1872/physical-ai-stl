@@ -1,0 +1,44 @@
+---
+# Neuromancer sine fit with an STL-style upper bound on the output
+# Trains a tiny MLP to fit y_true = sin(t) on [0, 2π] while softly enforcing
+# the safety constraint  G_t [ y_hat(t) <= bound ]  via a hinge penalty:
+#     loss = MSE(y_hat, y_true) + stl_weight * ReLU(y_hat - bound)
+# Designed to be fast and CPU‑friendly, matching the demo in
+# scripts/train_neuromancer_stl.py (PyTorch and Neuromancer paths).
+#
+# How to run (explicit CLI; this file is a human‑readable source of truth):
+#   python scripts/train_neuromancer_stl.py \
+#     --epochs {epochs} --lr {lr} --bound {bound} --stl-weight {stl_weight} \
+#     --n {n} --seed {seed} --device {device} --out {io[out]} {rtamt_flag}
+#
+# Notes:
+# - The bound (0.8) is intentionally below the sine amplitude (1.0) to
+#   illustrate the fit vs satisfaction trade‑off.
+# - Neuromancer uses a symbolic inequality y_hat <= bound as a soft
+#   constraint inside its Problem graph.
+# - Keep epochs modest (≤200) and n small (≤256) for laptop‑speed runs.
+# - Set device="cuda" or "mps" manually if you want to use a GPU/Apple‑Silicon.
+experiment: neuromancer_sine
+tag: stl_bound
+seed: 7
+
+# Training data
+n: 256               # number of samples on t ∈ [0, 2π]
+
+# Optimizer
+epochs: 150
+lr: 1.0e-3
+
+# STL‑style safety bound (upper envelope on predictions)
+bound: 0.8           # enforce y_hat(t) ≤ bound
+stl_weight: 100.0    # penalty weight for violations
+
+# Runtime
+device: "cpu"        # "cpu" | "cuda" | "mps" (string for torch.device)
+run_neuromancer: true
+rtamt: false         # if true, also compute offline robustness with RTAMT
+
+# Output artifact
+pretty: true         # pretty‑print JSON results
+io:
+  out: results/neuromancer_sine.json  # results JSON path (created if missing)

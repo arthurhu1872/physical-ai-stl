@@ -1,0 +1,250 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_PYTHON_VERSION_WARNING: "1"
+  PYTHONUNBUFFERED: "1"
+  FORCE_COLOR: "1"
+  CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+jobs:
+  preflight:
+    name: Preflight (change detection)
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      docs: ${{ steps.filter.outputs.docs }}
+      workflows: ${{ steps.filter.outputs.workflows }}
+      precommit: ${{ steps.precommit.outputs.present }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Path filter
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          filters: |
+            code:
+              - '**/*.py'
+              - 'src/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'requirements*.txt'
+              - '.pre-commit-config.yaml'
+              - 'Makefile'
+              - 'Dockerfile'
+              - 'configs/**'
+              - '.github/workflows/ci.yml'
+            docs:
+              - 'README.md'
+              - 'docs/**'
+            workflows:
+              - '.github/workflows/**'
+
+      - name: Detect pre-commit config
+        id: precommit
+        shell: bash
+        run: |
+          if [ -f .pre-commit-config.yaml ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  lint:
+    name: Lint (pre-commit) — Python 3.12
+    needs: [preflight]
+    if: ${{ (needs.preflight.outputs.code == 'true' || needs.preflight.outputs.workflows == 'true') && needs.preflight.outputs.precommit == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run pre-commit
+        uses: pre-commit/action@v3.0.1
+        # The action caches hook environments automatically
+
+  unit:
+    name: Tests (unit / minimal deps) — Python ${{ matrix.python-version }}
+    needs: [preflight]
+    if: ${{ needs.preflight.outputs.code == 'true' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python-version: "3.10"
+            experimental: false
+          - python-version: "3.11"
+            experimental: false
+          - python-version: "3.12"
+            experimental: false
+          - python-version: "3.13"
+            experimental: true
+    continue-on-error: ${{ matrix.experimental }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            pyproject.toml
+
+      - name: Install uv (fast pip-compatible installer)
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install minimal deps (prefer uv; no local build)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          uv pip install --system --upgrade pip wheel setuptools
+          uv pip install --system -r requirements.txt -r requirements-dev.txt || \
+            pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run tests (exclude optional stacks)
+        env:
+          PYTHONPATH: src
+        shell: bash
+        run: |
+          set -e
+          EXCLUDE="not (moonlight or spatial or rtamt or neuromancer or physicsnemo or torchphysics or pde)"
+          pytest -q -n auto --maxfail=1 --disable-warnings \
+            -k "$EXCLUDE" \
+            --cov=src/physical_ai_stl \
+            --cov-report=xml \
+            --cov-report=term-missing:skip-covered
+
+      - name: Upload coverage to Codecov (main Py 3.12 only)
+        if: ${{ env.CODECOV_TOKEN != '' && matrix.python-version == '3.12' }}
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ env.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          fail_ci_if_error: true
+          verbose: true
+
+  extras:
+    name: "Tests (optional deps: Torch/RTAMT/MoonLight/SpaTiaL/frameworks)"
+    needs: [preflight]
+    if: ${{ needs.preflight.outputs.code == 'true' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            requirements-extra.txt
+            pyproject.toml
+
+      - name: Install uv (fast pip-compatible installer)
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install Java 21 (MoonLight STREL)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install system deps for SpaTiaL (MONA) [best-effort]
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mona || true
+
+      - name: Install optional stacks (prefer uv; best-effort; no local build)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          uv pip install --system --upgrade pip wheel setuptools
+          uv pip install --system -r requirements.txt -r requirements-dev.txt || \
+            pip install -r requirements.txt -r requirements-dev.txt
+          if [ -f requirements-extra.txt ]; then
+            uv pip install --system -r requirements-extra.txt || pip install -r requirements-extra.txt || true
+          fi
+
+      - name: Show key versions
+        shell: bash
+        run: |
+          python - <<'PY'
+          import importlib
+          for name in [
+              "torch",
+              "rtamt",
+              "moonlight",
+              "spatial_spec",
+              "neuromancer",
+              "torchphysics",
+              "physicsnemo",
+          ]:
+              try:
+                  m = importlib.import_module(name)
+                  v = getattr(m, "__version__", "unknown")
+                  print(f"{name}: {v}")
+              except Exception as e:
+                  print(f"{name}: NOT INSTALLED ({e})")
+          PY
+          java -version
+
+      - name: Run targeted tests that exercise optional deps (skip if none)
+        env:
+          PYTHONPATH: src
+        shell: bash
+        run: |
+          set -e
+          MATCH_EXPR="stl_soft or moonlight or spatial or rtamt or neuromancer or torchphysics or physicsnemo or pde"
+          COLLECT_OUTPUT="$(pytest --collect-only -q -k "$MATCH_EXPR" 2>/dev/null || true)"
+          if [ -n "$COLLECT_OUTPUT" ]; then
+            echo "Discovered optional tests:"
+            echo "$COLLECT_OUTPUT" | sed -n '1,20p'
+            pytest -q -n auto --maxfail=1 --disable-warnings -k "$MATCH_EXPR"
+          else
+            echo "No optional tests discovered; skipping extras test suite."
+          fi

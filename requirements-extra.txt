@@ -1,0 +1,63 @@
+# physical-ai-stl — optional extras for STL monitoring + physics‑ML
+# Use with: pip install -r requirements.txt -r requirements-extra.txt
+#
+# Design goals (kept minimal but robust):
+#  1) Meet Prof. Johnson’s brief: evaluate Neuromancer / PhysicsNeMo / TorchPhysics
+#     and wire in STL monitoring stacks (RTAMT, MoonLight, SpaTiaL).
+#  2) Cross‑platform friendly & quick to resolve: avoid heavyweight or unsupported
+#     wheels on Windows and older Pythons with precise environment markers.
+#  3) Conservative pins for stability while permitting current PyTorch.
+#
+# Recommended Python: 3.10–3.12.
+#  - PyTorch ≥2.3 targets Python ≥3.9; 3.10+ has the best wheel coverage.
+#  - PhysicsNeMo publishes manylinux wheels and is Linux‑first.
+#  - MoonLight requires a JDK (Java 21+) at runtime.
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# STL / STREL monitoring stacks
+# ──────────────────────────────────────────────────────────────────────────────
+# RTAMT: STL monitoring (offline + online; discrete/dense time)
+rtamt>=0.3.5
+# MoonLight STREL wrapper (Python package; requires Java 21+ on PATH)
+# Upstream recommends: `pip install moonlight`; see repo README.
+moonlight>=0.3.0
+# SpaTiaL specifications (Linux/macOS; relies on MONA/ltlf2dfa, not Windows‑friendly)
+spatial-spec>=0.1.1 ; platform_system != "Windows"
+# Upstream SpaTiaL Python package from subdirectory `spatial-lib/`
+spatial @ git+https://github.com/KTH-RPL-Planiacs/SpaTiaL.git#subdirectory=spatial-lib ; platform_system != "Windows"
+#
+# Optional helpers to bootstrap a JDK for MoonLight when Java is unavailable:
+# (Commented by default to avoid surprising CI/system installs.)
+# install-jdk>=1.1.0        # Download & install a JDK programmatically
+# jdk4py>=21.0.4.2          # Self‑contained JDK wheels (handy for CI)
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# Physics‑ML frameworks
+# ──────────────────────────────────────────────────────────────────────────────
+# PyTorch: broad range for CPU/CUDA wheels; select CUDA via official index.
+torch>=2.3,<3.0
+# Neuromancer (PyTorch SciML / differentiable optimization)
+neuromancer>=1.5.6,<2.0
+# Bosch TorchPhysics (PINNs, operators, etc.)
+torchphysics>=1.0.4,<2.0
+# NVIDIA PhysicsNeMo (Linux/WSL preferred; optional heavy dependency)
+nvidia-physicsnemo>=1.2.0 ; platform_system == "Linux" and python_version >= "3.10"
+# PhysicsNeMo Symbolic helpers (optional; Linux‑first, brings Cython)
+# nvidia-physicsnemo.sym>=0.8.0 ; platform_system == "Linux" and python_version >= "3.10"
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# Plotting / utilities (kept lean)
+# ──────────────────────────────────────────────────────────────────────────────
+matplotlib>=3.10,<4.0
+tqdm>=4.67
+PyYAML>=6.0.3
+# SciPy: follow upstream wheels by Python version (see SciPy release notes).
+#  - Python 3.10: keep <=1.15.x (wider binary wheel support).
+#  - Python ≥3.11: allow ≥1.16 (includes 3.13 wheels).
+scipy>=1.15,<1.16 ; python_version < "3.11"
+scipy>=1.16      ; python_version >= "3.11"
+#
+# ──────────────────────────────────────────────────────────────────────────────
+# Optional conveniences (uncomment if needed)
+# ──────────────────────────────────────────────────────────────────────────────
+# warp-lang>=1.8            # For select PhysicsNeMo/physics‑sim demos; GPU optional

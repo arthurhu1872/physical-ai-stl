@@ -1,0 +1,113 @@
+---
+# 2D Heat Equation PINN baseline (reproducible, STL-ready)
+# Domain: [x,y] ∈ [0,1]^2, t ∈ [0,1]
+# IC: Gaussian bump at t=0 centered in the domain (see physics/heat2d.py)
+# BC: Homogeneous Dirichlet on all sides (u=0) (see physics/heat2d.py)
+# Design goals:
+#   1) STL-ready baseline for spatio-temporal auditing/enforcement.
+#   2) Training-stable on CPU/GPU (fp32 by default; AMP off for higher-order grads).
+#   3) Lightweight and fast; safe defaults with room for overrides via --set.
+experiment: heat2d
+tag: baseline
+seed: 0
+
+# ---------------------------------------------------------------------------
+# Neural field model
+# ---------------------------------------------------------------------------
+model:
+  hidden: [64, 64, 64]     # three-layer MLP; solid accuracy/latency trade-off
+  activation: tanh         # robust default for parabolic PDEs
+  out_activation: null     # optional output clamp, e.g., 'tanh' (kept off for unbiased PDE solution)
+
+# ---------------------------------------------------------------------------
+# Spatial–temporal grid used for sampling/exports (not the batch size)
+# ---------------------------------------------------------------------------
+grid:
+  n_x: 64
+  n_y: 64
+  n_t: 64
+  x_min: 0.0
+  x_max: 1.0
+  y_min: 0.0
+  y_max: 1.0
+  t_min: 0.0
+  t_max: 1.0
+
+# ---------------------------------------------------------------------------
+# Optimization / runtime
+# ---------------------------------------------------------------------------
+optim:
+  lr: 2.0e-3
+  epochs: 300
+  batch: 4096
+  weight_decay: 0.0
+  amsgrad: false
+  scheduler: cosine        # 'none' | 'cosine' | 'step'
+  step_size: 100           # used only if scheduler: step
+  gamma: 0.5               # used only if scheduler: step
+  grad_clip: null          # e.g., 1.0 to clip global grad-norm
+  compile: true            # PyTorch 2.x compile for speed; falls back if unavailable
+  amp: false               # AMP off by default (2nd-order grads can be sensitive)
+  device: auto             # 'auto' → cuda→mps→cpu
+  dtype: float32           # fp32 improves stability for PDE residuals
+
+# ---------------------------------------------------------------------------
+# Physics terms (PDE residual + BC/IC sampling)
+# ---------------------------------------------------------------------------
+physics:
+  alpha: 0.1               # diffusivity
+  bcic_weight: 1.0         # weight for boundary/IC penalties
+  n_boundary: 512          # samples per step for boundary loss
+  n_initial: 512           # samples per step for initial condition loss
+  use_dirichlet_mask_pow: 0  # >0 multiplies output by boundary mask^pow (hard BC); keep 0 for soft
+
+# ---------------------------------------------------------------------------
+# Residual-aware resampling (RAR)
+#   Disabled by default for determinism; enable on harder instances.
+# ---------------------------------------------------------------------------
+rar:
+  pool: 0                  # if >0, probe residuals on this many pool points
+  hard_frac: 0.5           # top-|residual| fraction to keep when RAR is on
+  every: 10                # evaluate RAR every N epochs
+
+# ---------------------------------------------------------------------------
+# Differentiable STL penalty (internal soft semantics)
+#   Keep 'use: false' for a pure physics baseline.
+#   When enabled, this encourages bounds such as:
+#     G_t [ ∀_{x,y∈Ω} u(x,y,t) ≤ u_max ]  or  F_t [ ∃_{x,y} u(x,y,t) ≥ u_min ].
+# ---------------------------------------------------------------------------
+stl:
+  use: false               # flip to true to enforce spatio-temporal bounds
+  weight: 5.0              # penalty weight; tune 1–20 depending on bound tightness
+  u_min: null              # lower bound (optional)
+  u_max: 1.0               # upper bound (optional)
+  margin: 0.0              # desired positive robustness margin
+  beta: 10.0               # softplus sharpness for hinge-style penalty
+  temp: 0.1                # temperature for soft (min/max) aggregators
+  operator: always         # 'always' (G) | 'eventually' (F)
+  window: 0                # temporal window length in samples (0 ⇒ whole horizon)
+  stride: 1                # window stride in samples
+  space_op: forall         # 'forall' (softmin) | 'exists' (softmax)
+  space_temp: 0.1          # spatial soft (min/max) temperature
+  n_x: 32                  # coarse monitor grid (decoupled from training grid)
+  n_y: 32
+  n_t: 16
+  every: 10                # evaluate/add penalty every N epochs
+  # Optional STL subregion (defaults to the whole domain)
+  x_min: null
+  x_max: null
+  y_min: null
+  y_max: null
+  t_min: null
+  t_max: null
+
+# ---------------------------------------------------------------------------
+# Output / logging
+# ---------------------------------------------------------------------------
+io:
+  results_dir: results
+  save_ckpt: true
+  save_frames: true
+  frames_idx: [0, 16, 32]  # time indices to export (clamped to [0, n_t-1])
+  save_figs: true
+  print_every: 25

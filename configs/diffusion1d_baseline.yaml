@@ -1,0 +1,65 @@
+---
+# 1D diffusion PINN baseline (reproducible, STL-ready, fast-by-default)
+# Experiment: trains u(x,t) for u_t = alpha * u_xx on [x_min,x_max]×[t_min,t_max].
+# Notes:
+# • Schema matches src/physical_ai_stl/experiments/diffusion1d.py (_parse_config).
+# • STL is configured but disabled here (baseline); turn on via stl.use: true.
+# • Conservative numerics for higher-order grads; opt-in speed via torch.compile.
+
+experiment: diffusion1d
+tag: baseline
+seed: 0
+
+# Neural field model (compact MLP; stable for parabolic PDEs)
+model:
+  hidden: [64, 64, 64]     # three-layer MLP; strong accuracy/latency tradeoff
+  activation: tanh         # robust for PINNs on diffusion-type PDEs
+  # out_activation: null   # optional
+
+# Spatial–temporal grid for exported snapshots (NOT the train batch)
+grid:
+  n_x: 128                 # spatial eval resolution
+  n_t: 64                  # temporal eval resolution
+  x_min: 0.0
+  x_max: 1.0
+  t_min: 0.0
+  t_max: 1.0
+
+# Physics parameters
+physics:
+  alpha: 0.1               # diffusion coefficient
+
+# Optimization & sampling (collocation)
+optim:
+  lr: 0.002                # Adam lr; stable for this model size
+  epochs: 400              # baseline budget (reproducible & reasonably fast)
+  batch: 4096              # interior collocation points per step
+  weight_decay: 0.0
+  n_boundary: 256          # samples along x = boundaries over t∈[t_min,t_max]
+  n_initial: 512           # samples along t = t_min over x∈[x_min,x_max]
+  sample_method: sobol     # low-discrepancy sampling for better coverage
+
+# STL monitor (configured but disabled in the baseline)
+# When enabled, this enforces/monitors:  G_t [ reduce_x u(x,t) ≤ u_max ]
+# reduce_x is chosen via stl.spatial ("mean" | "softmax" | "amax").
+stl:
+  use: false               # set true to activate differentiable STL penalty
+  weight: 0.0              # λ: penalty weight (set >0 when stl.use: true)
+  u_max: 1.0               # safety bound for amplitude
+  temp: 0.1                # smooth-min/max temperature (soft semantics)
+  spatial: amax            # reduce over x; "amax" = strict worst-case
+  every: 1                 # compute STL loss every k steps (k ≥ 1)
+  n_x: 64                  # coarse monitor grid (decoupled from train batch)
+  n_t: 64
+
+# System/runtime
+device: null               # null => auto (cuda -> mps -> cpu)
+dtype: float32             # higher-order derivatives more stable in fp32
+amp: false                 # AMP off by default for PINN stability
+compile: true              # safe speedup on PyTorch 2.x (falls back if unavailable)
+print_every: 25
+
+# Output
+io:
+  results_dir: results     # artifacts: csv log, ckpt, final field tensor
+  save_ckpt: true

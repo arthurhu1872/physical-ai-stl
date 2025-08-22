@@ -1,0 +1,88 @@
+---
+# 1D diffusion PINN with a differentiable STL safety constraint on the field amplitude.
+# Enforces the STL formula:      G_t [ reduce_x u(x,t) <= u_max ]
+# where reduce_x is a differentiable spatial aggregator approximating max_x (softmax).
+# Schema matches: src/physical_ai_stl/experiments/diffusion1d.py::_parse_config
+# Run:
+#   python scripts/run_experiment.py -c configs/diffusion1d_stl.yaml
+# (optionally override via --set, e.g., --set stl.u_max=1.02 --set optim.epochs=800)
+
+experiment: diffusion1d
+tag: stl
+seed: 0
+
+# ---------------------------------------------------------------------------
+# Neural field model (compact, stable for parabolic PDEs)
+# ---------------------------------------------------------------------------
+model:
+  hidden: [64, 64, 64]         # three-layer MLP; good accuracy/latency trade-off
+  activation: tanh             # robust for PINNs on diffusion-type PDEs
+  # out_activation: null       # optional output activation (kept linear)
+
+# ---------------------------------------------------------------------------
+# Export/eval grid (NOT the training batch size)
+# ---------------------------------------------------------------------------
+grid:
+  n_x: 128
+  n_t: 64
+  x_min: 0.0
+  x_max: 1.0
+  t_min: 0.0
+  t_max: 1.0
+
+# ---------------------------------------------------------------------------
+# Optimizer & sampling
+# ---------------------------------------------------------------------------
+optim:
+  lr: 2.0e-3                   # conservative; stable with higher-order grads
+  epochs: 800                  # steps/iterations (CPU-friendly but accurate)
+  batch: 4096                  # interior collocation points per step
+  weight_decay: 0.0
+  # BC/IC sampling (Dirichlet at x=0,1; sine IC at t=0 are built into the experiment)
+  n_boundary: 256
+  n_initial: 512
+  sample_method: sobol         # quasi-random collocation for smoother coverage
+
+# ---------------------------------------------------------------------------
+# Physics
+# ---------------------------------------------------------------------------
+physics:
+  alpha: 0.1                   # diffusion coefficient
+
+# ---------------------------------------------------------------------------
+# Differentiable STL penalty (smooth robustness semantics)
+# G_t [ reduce_x u(x,t) <= u_max ], evaluated on a coarse monitor grid.
+# ---------------------------------------------------------------------------
+stl:
+  use: true
+  weight: 5.0                  # λ: penalty weight; 1–10 is a good starting range
+  u_max: 1.05                  # slightly above sine IC amplitude (≈1.0) to avoid hard conflict
+  temp: 0.05                   # softmin/softmax temperature (smaller → sharper, but riskier)
+  spatial: softmax             # spatial reducer over x: mean | softmax | amax
+  every: 2                     # evaluate STL loss every k steps (saves compute)
+  n_x: 64                      # coarse monitor grid (decoupled from training batch)
+  n_t: 64
+
+# ---------------------------------------------------------------------------
+# System/runtime
+# ---------------------------------------------------------------------------
+device: null                   # null ⇒ auto (cuda → mps → cpu)
+dtype: float32                 # fp32 for stable higher-order derivatives
+amp: false                     # AMP off by default for PINN stability
+compile: true                  # torch.compile when available (falls back safely)
+print_every: 25
+
+# ---------------------------------------------------------------------------
+# Output
+# ---------------------------------------------------------------------------
+io:
+  results_dir: results         # artifacts: csv log, checkpoint, final field tensor
+  save_ckpt: true
+
+# ---------------------------------------------------------------------------
+# (Optional) Example sweep – enable by uncommenting the block below and running:
+#   python scripts/run_experiment.py -c configs/diffusion1d_stl.yaml
+# ---------------------------------------------------------------------------
+# sweep:
+#   stl.weight: [2.0, 5.0, 10.0]
+#   stl.temp:   [0.05, 0.1]

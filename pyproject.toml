@@ -1,0 +1,237 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "physical-ai-stl"
+description = "Prototyping STL/STREL monitoring with physics-ML (NeuroMANCER, TorchPhysics, PhysicsNeMo) for neural ODE/PDE models; evaluation scaffolding and reproducible experiments."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [{ name = "Arthur Hu et al." }]
+keywords = [
+  "signal-temporal-logic",
+  "stl",
+  "strel",
+  "runtime-monitoring",
+  "scientific-ml",
+  "physics-informed",
+  "neural-ode",
+  "neural-pde",
+  "cyber-physical-systems",
+  "physical-ai",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Libraries",
+]
+# Minimal runtime: keep lightweight and CPU-friendly by default.
+dependencies = [
+  "numpy>=1.26,<3.0",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/arthurhu1872/physical-ai-stl"
+Repository = "https://github.com/arthurhu1872/physical-ai-stl"
+Issues = "https://github.com/arthurhu1872/physical-ai-stl/issues"
+
+[project.scripts]
+# Command-line entry points exposing the lightweight CLI in __main__.py
+physical-ai-stl = "physical_ai_stl.__main__:main"
+pastl = "physical_ai_stl.__main__:main"
+
+[project.optional-dependencies]
+# Install just CPU torch by default; use official index for CUDA builds as needed.
+torch = [
+  "torch>=2.3,<3.0",
+]
+
+# STL monitoring toolkits (temporal + spatial). SpaTiaL's Python bindings target POSIX.
+monitoring = [
+  "rtamt>=0.3.5",
+  # MoonLight Python wrapper for STREL (PyPI package 'moonlight')
+  "moonlight>=0.3,<1.0",
+  # SpaTiaL (specification & monitoring). Requires MONA on Linux/macOS; not supported on Windows.
+  'spatial-spec>=0.1.1; platform_system != "Windows"',
+  # Pull the SpaTiaL python package from its subdirectory.
+  'spatial @ git+https://github.com/KTH-RPL-Planiacs/SpaTiaL.git#subdirectory=spatial-lib ; platform_system != "Windows"',
+]
+
+# Physics-ML frameworks to evaluate.
+frameworks = [
+  # NeuroMANCER on PyPI as "neuromancer".
+  "neuromancer>=1.5.6,<2.0",
+  "torchphysics>=1.0.4,<2.0",
+  # PhysicsNeMo is Linux-first; enable where wheels exist.
+  'nvidia-physicsnemo>=1.1.0; platform_system == "Linux"',
+]
+
+# Visualization & utilities; SciPy pin unified by current support window.
+viz = [
+  "matplotlib>=3.10,<4.0",
+  "tqdm>=4.67",
+  "PyYAML>=6.0.3",
+  "scipy>=1.15,<2.0",
+]
+
+# Developer tools: fast formatting/linting, typing, tests, coverage.
+dev = [
+  "pytest>=8.4",
+  "pytest-cov>=7.0",
+  "mypy>=1.18",
+  "ruff>=0.14,<0.15",
+  "pre-commit>=4.0",
+  "codespell>=2.3",
+  "types-PyYAML>=6.0.12.20240917",
+]
+
+# One-shot install for most use cases (CPU).
+all = [
+  "torch>=2.3,<3.0",
+  "rtamt>=0.3.5",
+  "moonlight>=0.3,<1.0",
+  'spatial-spec>=0.1.1; platform_system != "Windows"',
+  'spatial @ git+https://github.com/KTH-RPL-Planiacs/SpaTiaL.git#subdirectory=spatial-lib ; platform_system != "Windows"',
+  "neuromancer>=1.5.6,<2.0",
+  "torchphysics>=1.0.4,<2.0",
+  'nvidia-physicsnemo>=1.1.0; platform_system == "Linux"',
+  "matplotlib>=3.10,<4.0",
+  "tqdm>=4.67",
+  "PyYAML>=6.0.3",
+  "scipy>=1.15,<2.0",
+  "pytest>=8.4",
+  "pytest-cov>=7.0",
+  "mypy>=1.18",
+  "ruff>=0.14,<0.15",
+  "pre-commit>=4.0",
+  "codespell>=2.3",
+  "types-PyYAML>=6.0.12.20240917",
+]
+
+[tool.hatch.version]
+path = "src/physical_ai_stl/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+# src/ layout
+packages = ["src/physical_ai_stl"]
+
+# Include typing marker in the wheel
+[tool.hatch.build.force-include]
+"src/physical_ai_stl/py.typed" = "physical_ai_stl/py.typed"
+
+[tool.hatch.build.targets.sdist]
+# Exclude large, non-essential artifacts from source distributions.
+exclude = [
+  "/.github",
+  "/.vscode",
+  "/.idea",
+  "/.ruff_cache",
+  "/.mypy_cache",
+  "/.pytest_cache",
+  "/dist",
+  "/build",
+  "/htmlcov",
+  "/tests/data",
+]
+
+# --- Ruff (lint & format) ----------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.format]
+quote-style = "preserve"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "I",   # import sorting
+  "UP",  # pyupgrade
+  "B",   # flake8-bugbear (via Ruff)
+]
+ignore = [
+  "D",   # docstring style (handled by convention)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E402", "F401", "E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["physical_ai_stl"]
+combine-as-imports = true
+
+# --- MyPy (typing) -----------------------------------------------------------
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+no_implicit_optional = true
+check_untyped_defs = true
+strict_equality = true
+ignore_missing_imports = true
+plugins = []
+
+# --- Pytest ------------------------------------------------------------------
+[tool.pytest.ini_options]
+addopts = "-q --maxfail=1"
+testpaths = ["tests"]
+filterwarnings = [
+  "ignore::DeprecationWarning",
+]
+
+# --- Coverage ----------------------------------------------------------------
+[tool.coverage.run]
+source = ["src/physical_ai_stl"]
+branch = true
+parallel = true
+omit = ["**/tests/*", "**/__init__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_lines = [
+  "pragma: no cover",
+  "if __name__ == .__main__.:",
+]
+
+[tool.coverage.paths]
+# Ensure coverage combines across different working directories (CI vs local).
+source = [
+  "src/physical_ai_stl",
+  "**/site-packages/physical_ai_stl",
+]
+
+# --- uv (package manager) ----------------------------------------------------
+# Make it easy to pull the right wheel indexes in CI and for contributors.
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+nvidia-physicsnemo = { index = "nvidia" }
+"nvidia-physicsnemo.sym" = { index = "nvidia" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+explicit = true

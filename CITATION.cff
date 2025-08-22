@@ -1,0 +1,97 @@
+cff-version: 1.2.0
+message: "If you use this repository (code, examples, or report), please cite it as below. See references for key frameworks and papers this work builds on."
+type: software
+title: "physical-ai-stl: STL/STREL monitoring and soft enforcement for physics-aware ML"
+abstract: "A lightweight, reproducible scaffold for experimenting with Signal Temporal Logic (STL) and spatial STL (STREL) monitoring and soft enforcement in physics-aware ML models (neural ODE/PDE, PINNs/DeepONets/FNOs, differentiable predictive control). Includes tiny CPU-friendly demos, wrappers for RTAMT and MoonLight/SpaTiaL, and configuration-driven experiments for Vanderbilt CS-3860-01 Undergraduate Research."
+authors:
+  - family-names: "Hu"
+    given-names: "Arthur"
+    affiliation: "Vanderbilt University"
+date-released: "2025-08-21"
+version: "0.1.0"
+license: MIT
+repository-code: "https://github.com/arthurhu1872/physical-ai-stl"
+url: "https://github.com/arthurhu1872/physical-ai-stl"
+keywords:
+  - AI4Science
+  - Cyber-Physical Systems
+  - Differentiable Predictive Control
+  - Formal Methods
+  - Monitoring
+  - MoonLight
+  - Neural ODE
+  - Neural PDE
+  - Neuromancer
+  - NVIDIA PhysicsNeMo
+  - PINNs
+  - Physics-informed machine learning
+  - RTAMT
+  - Runtime Verification
+  - Signal Temporal Logic
+  - SpaTiaL
+  - Spatio-Temporal Logic
+  - STL
+  - STREL
+  - TorchPhysics
+preferred-citation:
+  type: software
+  title: "physical-ai-stl"
+  version: "0.1.0"
+  date-released: "2025-09-28"
+  authors:
+    - family-names: "Hu"
+      given-names: "Arthur"
+      affiliation: "Vanderbilt University"
+  repository-code: "https://github.com/arthurhu1872/physical-ai-stl"
+  url: "https://github.com/arthurhu1872/physical-ai-stl"
+references:
+  - type: software
+    title: "MoonLight: a light-weight framework for runtime monitoring (STREL)"
+    authors:
+      - name: "MoonLightSuite developers"
+    repository-code: "https://github.com/MoonLightSuite/moonlight"
+    url: "https://moonlightsuite.github.io/moonlight/"
+  - type: software
+    title: "NeuroMANCER (Neuromancer): PyTorch differentiable programming for constrained optimization, system identification, and DPC"
+    authors:
+      - name: "Pacific Northwest National Laboratory (PNNL)"
+    repository-code: "https://github.com/pnnl/neuromancer"
+    url: "https://pnnl.github.io/neuromancer/"
+  - type: software
+    title: "NVIDIA PhysicsNeMo (formerly Modulus)"
+    authors:
+      - name: "NVIDIA PhysicsNeMo Team"
+    repository-code: "https://github.com/NVIDIA/physicsnemo"
+    url: "https://developer.nvidia.com/physicsnemo"
+  - type: software
+    title: "RTAMT: specification-based real-time monitoring library for STL"
+    authors:
+      - name: "Dejan Nickovic and contributors"
+    repository-code: "https://github.com/nickovic/rtamt"
+  - type: software
+    title: "SpaTiaL: spatio-temporal relations and monitoring"
+    authors:
+      - name: "KTH RPL Planiacs"
+    repository-code: "https://github.com/KTH-RPL-Planiacs/SpaTiaL"
+    url: "https://kth-rpl-planiacs.github.io/SpaTiaL/"
+  - type: conference-paper
+    title: "STLnet: Signal Temporal Logic Enforced Multivariate Recurrent Neural Networks"
+    authors:
+      - family-names: "Ma"
+        given-names: "Meiyi"
+      - family-names: "Gao"
+        given-names: "Ji"
+      - family-names: "Feng"
+        given-names: "Lu"
+      - family-names: "Stankovic"
+        given-names: "John"
+    conference:
+      name: "Advances in Neural Information Processing Systems (NeurIPS)"
+    year: 2020
+    url: "https://proceedings.neurips.cc/paper/2020/hash/a7da6ba0505a41b98bd85907244c4c30-Abstract.html"
+  - type: software
+    title: "TorchPhysics: deep learning methods for PDEs"
+    authors:
+      - name: "Bosch Research and University of Bremen contributors"
+    repository-code: "https://github.com/boschresearch/torchphysics"
+    url: "https://boschresearch.github.io/torchphysics/"

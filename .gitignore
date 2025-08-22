@@ -1,0 +1,244 @@
+# ===================================================================
+# physical-ai-stl — repository .gitignore
+# Purpose: keep commits lean, reproducible, and CI-friendly while avoiding
+#          accidental commits of large data, experiment artifacts, secrets,
+#          or local editor/system files.
+# ===================================================================
+#
+# House rules:
+#   • Never ignore source/config: keep src/**, scripts/**, configs/**, tests/**, docs/** (except build outputs).
+#   • Commit only *small* sample assets; all generated artifacts stay out of git.
+#   • Secrets live only in .env / key stores; examples are kept as *.env.example.
+#
+########################
+# 1) Python essentials #
+########################
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+# Compiled extensions
+*.so
+*.pyd
+*.dylib
+cython_debug/
+
+# Test, type, and tooling caches
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+.cache/
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.pyre/
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.pylint.d/
+.pyright/
+.benchmarks/
+
+# Packaging / build artifacts
+build/
+dist/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-wheel-metadata/
+*.manifest
+*.spec
+
+#####################################
+# 2) Environments & configuration   #
+#####################################
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+__pypackages__/
+.conda/
+condaenv.*/
+.python-version
+
+# dotenv/direnv secrets (keep examples only)
+.env
+.env.*
+!.env.example
+!.env.sample
+!*.env.example
+!*.env.sample
+.envrc
+.direnv/
+
+# Common secret/credential files (defensive)
+secrets/
+*.pem
+*.key
+*.der
+*.crt
+*.p12
+*.pfx
+id_rsa*
+id_ecdsa*
+id_ed25519*
+*.keyring
+*.enc
+credentials.json
+token.json
+client_secret*.json
+
+#########################################################
+# 3) Experiments, results, models, logs (project-level) #
+#########################################################
+# Primary outputs used across repo scripts
+/results/
+/figs/
+/figures/
+/logs/
+/outputs/
+
+# Common trackers & trainers
+/multirun/
+/runs/
+/wandb/
+/mlruns/
+/lightning_logs/
+/tensorboard/
+/ray_results/
+/artifacts/
+/checkpoints/
+/models/
+
+# Other experiment tools (kept light)
+/aim/
+/.aim/
+/dvclive/
+/.neptune/
+# Neptune sometimes writes a single file:
+neptune.log
+/.cometml/
+
+# Scratch, temp, and job outputs
+/tmp/
+tmp/
+temp/
+cache/
+caches/
+.caches/
+scratch/
+slurm-*.out
+nohup.out
+*.pid
+
+############################################
+# 4) Data & asset trees (keep README stubs)#
+############################################
+/data/
+/datasets/
+/assets/
+/images/
+/frames/
+
+# Keep lightweight readme markers in data/asset trees
+!/data/README*
+!/data/*/README*
+!/datasets/README*
+!/datasets/*/README*
+!/assets/README*
+!/assets/*/README*
+
+#####################################################
+# 5) Framework & dependency caches (avoid bloat)    #
+#####################################################
+# PyTorch / Torch hub & compile caches
+torch_extensions/
+torch_compile_debug/
+# System caches are usually outside repo; ignore if created locally
+.cache/
+.cgu-cache/
+*.nv_fatbin
+
+# Hugging Face / Hub caches (if any end up local)
+.huggingface/
+.hf_cache/
+transformers_cache/
+
+# Java/JNI tool noise (MoonLight et al.)
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
+
+###########################
+# 6) OS / editor metadata #
+###########################
+# macOS / Windows
+.DS_Store
+.DS_Store?
+.AppleDouble
+.LSOverride
+Icon?
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDEs / editors
+# Keep recommended workspace settings if explicitly provided
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.sublime-*
+.vim/
+*.sw?
+*~
+\#*\#
+.\#*
+
+#################################
+# 7) Docs & notebook generators #
+#################################
+# Sphinx / MkDocs outputs
+docs/_build/
+site/
+
+# Jupyter
+.ipynb_checkpoints/
+.ipython/
+.jupyter/
+jupyter_cache/
+
+# LaTeX aux files (scoped to docs/report/)
+docs/report/**/*.aux
+docs/report/**/*.bbl
+docs/report/**/*.blg
+docs/report/**/*.fdb_latexmk
+docs/report/**/*.fls
+docs/report/**/*.log
+docs/report/**/*.out
+docs/report/**/*.synctex.gz
+docs/report/**/texput.log
+
+# Pip logs (occasionally created on error)
+pip-delete-this-directory.txt
+pip-log.txt
+
+# Keep nested dataset readmes too (redundant safety)
+!/datasets/*/README*
