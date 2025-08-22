@@ -43,4 +43,5 @@ dev = [
     "torchphysics",
     "physicsnemo",
     "spatial-spec",
+    "pytorch-lightning",
 ]
