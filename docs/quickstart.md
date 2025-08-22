@@ -17,6 +17,12 @@ This installs the required packages listed in 'pyproject.toml'. Optional framewo
     make env   # quick dependency check
     make survey  # show versions of installed physical-AI frameworks
 
+If you plan to use these optional frameworks, install them with:
+
+    pip install -r requirements-extra.txt
+
+This will install packages such as PyTorch, RTAMT, MoonLight, TorchPhysics, and others which are not included by default.
+
 ### Java requirement
 
 MoonLight requires a Java runtime. Install Java 21 or higher and ensure 'java -version' reports 21.x. On macOS you can use Homebrew:
