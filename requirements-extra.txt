@@ -1,0 +1,29 @@
+# Optional heavy dependencies for experiments and monitoring.
+# Install with: pip install -r requirements-extra.txt
+
+# --- STL / STREL monitoring stacks ---
+rtamt>=0.3.5
+# MoonLight STREL wrapper (latest stable as of 2024–25)
+moonlight>=0.3.1
+# SpaTiaL specifications (Linux/macOS; MONA/ltlf2dfa not Windows-friendly)
+spatial-spec>=0.1.1 ; platform_system != "Windows"
+spatial @ git+https://github.com/KTH-RPL-Planiacs/SpaTiaL.git#subdirectory=spatial-lib ; platform_system != "Windows"
+
+# --- Physics-based ML frameworks ---
+neuromancer>=1.5.4
+torchphysics>=1.0.4
+# PhysicsNeMo (Linux preferred)
+nvidia-physicsnemo>=1.2.0 ; platform_system == "Linux"
+
+# --- Plotting / utils ---
+matplotlib>=3.10,<4.0
+tqdm>=4.67.1
+pyyaml>=6.0.2
+# SciPy: keep Py3.10 working; allow newer on >=3.11
+scipy>=1.16 ; python_version >= "3.11"
+scipy>=1.15,<1.16 ; python_version < "3.11"
+
+# --- Optional convenience (uncomment if needed) ---
+# install-jdk>=1.1.0       # Bootstrap a JDK before using MoonLight (Java 21+ works)
+# jdk4py>=21.0.4.2         # Self-contained JDK for CI where Java isn't present
+# warp-lang>=1.9           # For certain PhysicsNeMo demos; GPU optional

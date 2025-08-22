@@ -1,0 +1,27 @@
+# VCS & editor
+.git
+.gitignored
+.idea
+.vscode
+.DS_Store
+
+# Python / build artefacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Project outputs
+results/
+figs/
+data/
+*.np[yz]
+*.csv
+
+# Notebooks caches
+*.ipynb_checkpoints/

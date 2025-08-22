@@ -1,0 +1,100 @@
+# Pre-commit for a fast, reliable dev loop on this repo.
+# Focus: ruff (lint+format), codespell, and basic hygiene hooks.
+
+minimum_pre_commit_version: "3.7.0"
+
+default_language_version:
+  python: python3.11
+
+# Don't waste cycles on generated/large artifacts.
+exclude: >
+  (?x)^(
+    results/|
+    figs/|
+    data/|
+    .venv/|
+    build/|
+    dist/|
+    .*\.egg-info/|
+    .*\.ipynb_checkpoints/|
+    .pytest_cache/|
+    .ruff_cache/|
+    __pycache__/|
+    .*\.np[yz]|
+    .*\.csv
+  )
+
+repos:
+  # --- Core hygiene ----------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: check-ast
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-json
+      - id: check-toml
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+      - id: debug-statements
+      - id: name-tests-test
+        args: ["--pytest-test-first"]
+
+  # --- Ruff: formatter + linter (fast) --------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        name: ruff (lint)
+        args:
+          - --fix
+          - --exit-non-zero-on-fix
+        files: ^(src|scripts|tests)/.*\.py$
+      - id: ruff-format
+        name: ruff (format)
+        files: ^(src|scripts|tests)/.*\.py$
+
+  # --- Type checking (kept lightweight) -------------------------------------
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        name: mypy (typed code only)
+        # Make mypy non-blocking initially; tighten later.
+        args: ["--ignore-missing-imports", "--install-types", "--non-interactive"]
+        additional_dependencies:
+          - types-PyYAML
+          - numpy
+        files: ^src/.*\.py$
+
+  # --- Spelling (domain-aware) ----------------------------------------------
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.3.0
+    hooks:
+      - id: codespell
+        args:
+          - --ignore-words=.codespellignorewords.txt
+          - --skip=*.csv,*.npz,*.npy,results,figs,.venv
+          - -w
+
+  # --- Notebooks (only if present; harmless otherwise) ----------------------
+  - repo: https://github.com/nbQA-dev/nbQA
+    rev: 1.9.1
+    hooks:
+      - id: nbqa
+        name: nbqa-ruff
+        args: ["ruff", "--fix"]
+        files: \.ipynb$
+      - id: nbqa
+        name: nbqa-ruff-format
+        args: ["ruff", "format"]
+        files: \.ipynb$
+      - id: nbqa
+        name: nbqa-codespell
+        args: ["codespell", "--ignore-words=.codespellignorewords.txt"]
+        files: \.ipynb$

@@ -1,0 +1,2 @@
+# Minimal runtime requirements for the package
+numpy>=1.26,<2.0

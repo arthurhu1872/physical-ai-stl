@@ -1,0 +1,3 @@
+signal { bool hot; }
+domain boolean;
+formula contain = eventually (!(somewhere (hot)));
