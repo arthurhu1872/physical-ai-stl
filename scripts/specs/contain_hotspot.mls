@@ -1,0 +1,3 @@
+signal { real hot; }
+domain boolean;
+formula contain = globally [0, 5] (hot -> eventually [0,2] (!hot));
