@@ -1,6 +1,6 @@
 # Framework Survey
 
-This document summarizes candidate libraries for physics-based machine learning and Signal Temporal Logic (STL) monitoring, based on links provided by Prof. Johnson.
+This document summarizes candidate libraries for physics-based machine learning and Signal Temporal Logic (STL) monitoring.
 
 ## Physical AI frameworks
 
