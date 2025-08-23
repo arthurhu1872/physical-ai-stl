@@ -8,8 +8,8 @@ import numpy as np
 class SyntheticSTLNetDataset:
     """Generate a bounded sinusoidal time-series for STLnet-style demos.
 
-    Each item is a `(time, value)` pair where `time` is in `[0, 1]` and
-    `value` lies roughly in `[0, 1]` with optional Gaussian noise.
+    Each item is a '(time, value)' pair where 'time' is in '[0, 1]' and
+    'value' lies roughly in '[0, 1]' with optional Gaussian noise.
     """
 
     def __init__(self, length: int = 100, noise: float = 0.05) -> None:
