@@ -1,4 +1,3 @@
-# scripts/train_burgers_torchphysics.py
 """Train 1D Burgers' equation PINN using TorchPhysics, with optional STL penalty."""
 import argparse, math, sys
 
