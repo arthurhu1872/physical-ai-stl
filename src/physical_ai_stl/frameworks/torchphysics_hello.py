@@ -7,7 +7,7 @@ def torchphysics_version() -> str:
     Raises
     ------
     ImportError
-        If ``torchphysics`` is not installed.
+        If ''torchphysics'' is not installed.
     """
     try:
         import torchphysics  # type: ignore
