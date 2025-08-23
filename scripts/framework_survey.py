@@ -21,7 +21,6 @@ def _version(name: str) -> str:
     except Exception:
         return "not installed"
 
-
 def main() -> None:
     print("Framework survey:\n")
     for name, desc in FRAMEWORKS.items():
@@ -29,7 +28,6 @@ def main() -> None:
     print("\nSTL tooling:\n")
     for name, desc in STL_LIBS.items():
         print(f"{name:>12} : {_version(name)} - {desc}")
-
 
 if __name__ == "__main__":
     main()
