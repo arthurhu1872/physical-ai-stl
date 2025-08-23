@@ -10,7 +10,7 @@ def _import_moonlight():
     try:
         from moonlight import ScriptLoader  # type: ignore
     except Exception as e:  # pragma: no cover
-        raise ImportError("moonlight is not installed; `pip install moonlight`.") from e
+        raise ImportError("moonlight is not installed; 'pip install moonlight'.") from e
     return ScriptLoader
 
 def load_script_from_file(path: str):
