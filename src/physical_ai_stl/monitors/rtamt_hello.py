@@ -1,7 +1,6 @@
 """Tiny RTAMT 'hello world' used by tests as a smoke-check."""
 from __future__ import annotations
 
-
 def stl_hello_offline() -> float:
     # Import inside the function to allow test to skip cleanly when missing.
     try:
@@ -18,6 +17,5 @@ def stl_hello_offline() -> float:
     # robustness at t0
     rob = spec.evaluate(["u"], [ts])[0][1]
     return float(rob)
-
 
 __all__ = ["stl_hello_offline"]
