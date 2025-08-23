@@ -10,10 +10,10 @@ This repository is under active exploration and is **not** an officially support
 
 This codebase bootstraps an environment to prototype and test logic‑based monitors before integrating them into more complex frameworks such as [Neuromancer](https://github.com/pnnl/neuromancer), [TorchPhysics](https://github.com/boschresearch/torchphysics) or [NVIDIA PhysicsNeMo](https://github.com/NVIDIA/physicsnemo).  It includes:
 
-* A modern Python project layout ('pyproject.toml') with dependencies like [RTAMT](https://github.com/nickovic/rtamt) for STL monitoring and [MoonLight](https://github.com/MoonLightSuite/moonlight) for spatio‑temporal logic.
-* Example modules under 'src/physical_ai_stl/monitors' demonstrating a simple offline STL robustness check and a spatio‑temporal monitor.  These illustrate how to call the monitors programmatically and can serve as a template for your own experiments.
-* A test suite ('tests/') for the example monitors, executed automatically via PyTest.
-* A GitHub Actions workflow ('.github/workflows/ci.yml') that installs Java 21, sets up Python, installs dependencies and runs the tests on each push or pull request.
+* A modern Python project layout (`pyproject.toml`) with dependencies like [RTAMT](https://github.com/nickovic/rtamt) for STL monitoring and [MoonLight](https://github.com/MoonLightSuite/moonlight) for spatio‑temporal logic.
+* Example modules under `src/physical_ai_stl/monitors` demonstrating a simple offline STL robustness check and a spatio‑temporal monitor.  These illustrate how to call the monitors programmatically and can serve as a template for your own experiments.
+* A test suite (`tests/`) for the example monitors, executed automatically via PyTest.
+* A GitHub Actions workflow (`.github/workflows/ci.yml`) that installs Java 21, sets up Python, installs dependencies and runs the tests on each push or pull request.
 
 ## Quickstart
 
@@ -21,46 +21,46 @@ Follow these steps to set up your environment and run the examples:
 
 1. **Clone the repo** and create a virtual environment (Python 3.9+).  A dedicated environment keeps your global Python installation clean and avoids version conflicts:
 
-   '''bash
+   ```bash
    git clone https://github.com/arthurhu1872/physical-ai-stl.git
    cd physical-ai-stl
    python3 -m venv .venv
-   # On Windows use '.\\.venv\\Scripts\\activate'
+   # On Windows use `.\\.venv\\Scripts\\activate`
    source .venv/bin/activate
-   '''
+   ```
 
-2. **Install dependencies** and the package in editable mode.  Installing with '-e' (editable) allows you to modify the code in place and immediately see the effects when you run the scripts:
+2. **Install dependencies** and the package in editable mode.  Installing with `-e` (editable) allows you to modify the code in place and immediately see the effects when you run the scripts:
 
-   '''bash
+   ```bash
    pip install --upgrade pip
    pip install -e .
-   '''
+   ```
 
-   This will install 'rtamt', 'moonlight', 'pytest' and other dependencies specified in 'pyproject.toml'.
+   This will install `rtamt`, `moonlight`, `pytest` and other dependencies specified in `pyproject.toml`.
 
 3. **Verify you have Java 21+ available for MoonLight**.  The MoonLight Python wrapper relies on a recent Java runtime; versions prior to JDK 21 are not supported:
 
-   '''bash
+   ```bash
    java -version
-   '''
+   ```
 
    If the version is lower than 21, follow your operating system’s instructions to install [OpenJDK 21](https://jdk.java.net/21/) or a compatible distribution.
 
 4. **Run the example scripts**.  These scripts demonstrate a basic offline STL evaluation (via RTAMT) and a spatio‑temporal evaluation (via MoonLight):
 
-   '''bash
+   ```bash
    # Evaluate a simple STL specification using RTAMT
    python -m physical_ai_stl.monitors.rtamt_hello
 
    # Evaluate a simple temporal and spatio‑temporal specification using MoonLight
    python -m physical_ai_stl.monitors.moonlight_hello
-   '''
+   ```
 
 5. **Run the test suite** (optional but recommended):
 
-   '''bash
+   ```bash
    pytest -q
-   '''
+   ```
 
 6. **Continuous Integration**.  The repository includes a GitHub Actions workflow that automatically sets up the environment and runs tests whenever you push or open a pull request.  This helps ensure that the example monitors continue to work as dependencies evolve and makes it easier to verify contributions.
 
