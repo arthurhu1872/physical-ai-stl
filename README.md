@@ -1,6 +1,6 @@
 # physical-ai-stl
 
-Scaffold for experimenting with **Signal Temporal Logic (STL)** and **spatio‑temporal logic (STREL)** monitoring in the context of physics‑based machine learning models.  It’s intended to be a **teaching and prototyping repository**, not a production‑ready library.  The goal is to make it easy to tinker with temporal/spatio‑temporal specifications alongside simple neural ODE or PDE examples.  It forms part of a larger initiative to explore "physical AI" — blending physics‑informed models (neural ODEs/PDEs, PINNs) with formal specification monitoring to ensure safety, stability and robustness in AI‑driven systems.
+Scaffold for experimenting with **Signal Temporal Logic (STL)** and **spatio‑temporal logic (STREL)** monitoring in the context of physics‑based machine learning models.  It's intended to be a **teaching and prototyping repository**, not a production‑ready library.  The goal is to make it easy to tinker with temporal/spatio‑temporal specifications alongside simple neural ODE or PDE examples.  It forms part of a larger initiative to explore "physical AI" — blending physics‑informed models (neural ODEs/PDEs, PINNs) with formal specification monitoring to ensure safety, stability and robustness in AI‑driven systems.
 
 ## Status
 
@@ -44,7 +44,7 @@ Follow these steps to set up your environment and run the examples:
    java -version
    ```
 
-   If the version is lower than 21, follow your operating system’s instructions to install [OpenJDK 21](https://jdk.java.net/21/) or a compatible distribution.
+   If the version is lower than 21, follow your operating system's instructions to install [OpenJDK 21](https://jdk.java.net/21/) or a compatible distribution.
 
 4. **Run the example scripts**.  These scripts demonstrate a basic offline STL evaluation (via RTAMT) and a spatio‑temporal evaluation (via MoonLight):
 
@@ -66,7 +66,7 @@ Follow these steps to set up your environment and run the examples:
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or discussion first to talk about significant changes you’d like to make. For small fixes, feel free to submit a pull request directly. Make sure to run the tests and update the documentation where appropriate.
+Contributions are welcome! Please open an issue or discussion first to talk about significant changes you'd like to make. For small fixes, feel free to submit a pull request directly. Make sure to run the tests and update the documentation where appropriate.
 
 ## License
 
