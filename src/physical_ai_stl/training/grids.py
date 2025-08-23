@@ -36,5 +36,4 @@ def grid2d(
     XYT = torch.stack([X.reshape(-1), Y.reshape(-1), T.reshape(-1)], dim=-1)
     return X, Y, T, XYT
 
-
 __all__ = ["grid1d", "grid2d"]
