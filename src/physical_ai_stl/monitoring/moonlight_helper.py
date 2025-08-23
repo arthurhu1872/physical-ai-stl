@@ -6,7 +6,6 @@ from typing import List, Tuple
 
 import numpy as np
 
-
 def _import_moonlight():
     try:
         from moonlight import ScriptLoader  # type: ignore
@@ -14,18 +13,15 @@ def _import_moonlight():
         raise ImportError("moonlight is not installed; `pip install moonlight`.") from e
     return ScriptLoader
 
-
 def load_script_from_file(path: str):
     """Load a MoonLight script from text file."""
     ScriptLoader = _import_moonlight()
     with open(path, "r", encoding="utf-8") as f:
         return ScriptLoader.loadFromText(f.read())
 
-
 def get_monitor(mls, name: str):
     """Get a monitor by name from a loaded script."""
     return mls.getMonitor(name)
-
 
 def build_grid_graph(n_x: int, n_y: int) -> Tuple[np.ndarray, np.ndarray]:
     """Return (nodes, edges) for an n_x by n_y grid graph."""
@@ -42,7 +38,6 @@ def build_grid_graph(n_x: int, n_y: int) -> Tuple[np.ndarray, np.ndarray]:
                 edges.append((nodes[i, j + 1], v))
     return nodes, np.array(edges, dtype=int)
 
-
 def field_to_signal(u: np.ndarray, threshold: float | None = None) -> List[List[List[float]]]:
     """Convert a (n_x, n_y, n_t) field to MoonLight's node-wise signal format."""
     n_x, n_y, n_t = u.shape
@@ -54,7 +49,6 @@ def field_to_signal(u: np.ndarray, threshold: float | None = None) -> List[List[
             frame = (frame >= threshold).astype(float)
         signal.append(frame.tolist())
     return signal
-
 
 __all__ = [
     "load_script_from_file",
