@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 def seed_everything(seed: int = 0) -> None:
     """Seed numpy, random, and torch (if available)."""
     import random
@@ -20,6 +19,5 @@ def seed_everything(seed: int = 0) -> None:
             torch.cuda.manual_seed_all(seed)
     except Exception:
         pass
-
 
 __all__ = ["seed_everything"]
