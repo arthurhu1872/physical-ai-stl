@@ -5,7 +5,6 @@ import torch
 
 from ..models.mlp import MLP
 
-
 def residual_heat2d(model: MLP, coords: torch.Tensor, alpha: float = 0.1) -> torch.Tensor:
     """Residual u_t - alpha * (u_xx + u_yy) for coords (x,y,t)."""
     coords = coords.requires_grad_(True)
@@ -17,7 +16,6 @@ def residual_heat2d(model: MLP, coords: torch.Tensor, alpha: float = 0.1) -> tor
     u_xx = torch.autograd.grad(u_x, coords, torch.ones_like(u_x), create_graph=True)[0][:, 0:1]
     u_yy = torch.autograd.grad(u_y, coords, torch.ones_like(u_y), create_graph=True)[0][:, 1:2]
     return u_t - alpha * (u_xx + u_yy)
-
 
 def bc_ic_heat2d(
     model: MLP,
@@ -49,6 +47,5 @@ def bc_ic_heat2d(
     target = torch.exp(-50.0 * ((x0 - 0.5).square() + (y0 - 0.5).square()))
     loss_ic = (model(ic_coords) - target).square().mean()
     return loss_b + loss_ic
-
 
 __all__ = ["residual_heat2d", "bc_ic_heat2d"]
