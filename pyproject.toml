@@ -1,47 +1,27 @@
-[build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "physical-ai-stl"
 version = "0.1.0"
-description = "Scaffold for STL/STREL monitoring with simple PDE examples"
-readme = "README.md"
-requires-python = ">=3.10"
-dependencies = ["numpy>=1.23,<2.0"]
-
-[tool.setuptools]
-package-dir = {"" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["physical_ai_stl*"]
-
-[tool.pytest.ini_options]
-addopts = "-q"
-testpaths = ["tests"]
-
-[tool.ruff]
-line-length = 100
-target-version = "py311"
-
-[tool.ruff.lint]
-select = ["E", "F"]
-ignore = ["E501", "E203"]
+description = "Signal Temporal Logic (STL) and spatio-temporal logic (STREL) monitoring for physics-based ML models"
+license = "MIT"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.23,<2.0",
+    "pytest>=7.0"
+]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7",
-    "ruff>=0.5.6",
-    "pyyaml",
-    "tqdm",
-    "matplotlib",
+full = [
     "torch",
+    "matplotlib",
+    "tqdm",
+    "pyyaml",
     "rtamt",
     "moonlight",
     "neuromancer",
     "torchphysics",
     "physicsnemo",
-    "spatial-spec",
-    "pytorch-lightning",
+    "spatial-spec"
+]
+dev = [
+    "ruff>=0.5.6"
 ]
