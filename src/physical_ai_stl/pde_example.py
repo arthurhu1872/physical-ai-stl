@@ -74,7 +74,7 @@ def simulate_diffusion_with_clipping(
     upper: float = 1.0,
     initial: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Same as :func:`simulate_diffusion` but clip *every* frame to [lower, upper].
+    """Same as :func:'simulate_diffusion' but clip *every* frame to [lower, upper].
 
     The initial state (t=0) is also clipped so tests that check the
     whole tensor—including the first row—pass deterministically.
