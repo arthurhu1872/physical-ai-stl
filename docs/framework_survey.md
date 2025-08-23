@@ -16,7 +16,7 @@ This document summarizes candidate libraries for physics-based machine learning 
 | --- | --- |
 | **RTAMT** | Python runtime monitoring of Signal Temporal Logic. |
 | **MoonLight** | Java-based monitoring of temporal and spatio-temporal specs (STREL). Python interface available. |
-| **SpaTiaL ('spatial-spec')** | Specify spatial and temporal relations for planning tasks. |
+| **SpaTiaL (`spatial-spec`)** | Specify spatial and temporal relations for planning tasks. |
 
 ## Suggested datasets/problem spaces
 
