@@ -13,11 +13,11 @@ The new module `src/physical_ai_stl/pde_example.py` contains:
 - `compute_robustness`: returns the minimum distance from a 1D signal to user‑supplied lower/upper bounds.
 - `compute_spatiotemporal_robustness`: returns the minimum distance from any entry of a 2D signal matrix to the bounds.
 
-Accompanying tests in `tests/test_pde_example.py` verify the solver’s shape, the clipping behaviour, and the robustness functions.
+Accompanying tests in `tests/test_pde_example.py` verify the solver's shape, the clipping behaviour, and the robustness functions.
 
 ## Framework evaluation
 
-Although we implemented our own solver for this sprint, the long‑term plan is to leverage existing physics‑ML libraries that support neural ODEs/PDEs and physics–informed neural networks (PINNs).  Based on the instructor’s suggestions and preliminary reading, the following frameworks were considered:
+Although we implemented our own solver for this sprint, the long‑term plan is to leverage existing physics‑ML libraries that support neural ODEs/PDEs and physics–informed neural networks (PINNs).  Based on the instructor's suggestions and preliminary reading, the following frameworks were considered:
 
 See also [framework_survey.md](framework_survey.md) for a concise table.
 
@@ -55,7 +55,7 @@ PhysicsNeMo is powerful and production‑oriented but heavy‑weight.  It requir
 
 For the next sprint we plan to experiment with **TorchPhysics**, since it offers a balance between ease of use and flexibility.  We can start by reproducing one of its simple PDE examples (e.g. the 1D Burgers equation) and then add our own STL robustness penalties.  If we find that expressing constraints is cumbersome, we will revisit **Neuromancer**.  We will leave **PhysicsNeMo** for potential future work if we require GPU acceleration or neural operators.
 
-## What’s next
+## What's next
 
 - Integrate the PDE solver with our existing MoonLight monitors to evaluate spatio‑temporal logic properties on small grids.
 - Reproduce a TorchPhysics example and implement a robustness penalty similar to the one used in our diffusion example.
