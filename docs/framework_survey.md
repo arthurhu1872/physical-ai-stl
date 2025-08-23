@@ -21,7 +21,7 @@ This document summarizes candidate libraries for physics-based machine learning 
 ## Suggested datasets/problem spaces
 
 * 1D diffusion and 2D heat equations (already included here) for testing STL enforcement.
-* Air quality or synthetic trajectory datasets from STLnet for spatio-temporal experiments.
-* Additional PDE benchmarks from PhysicsNeMo or TorchPhysics (e.g., Burgers', Navier–Stokes) once STL monitoring is integrated.
+* Air quality or synthetic trajectory datasets from STLnet for spatio-temporal experiments (a synthetic example is provided in this repository).
+* Additional PDE benchmarks from PhysicsNeMo or TorchPhysics (e.g., Burgers' equation, Navier–Stokes) once STL monitoring is integrated.
 
 These notes provide a starting point for integrating STL monitoring with physics-informed learning libraries.
