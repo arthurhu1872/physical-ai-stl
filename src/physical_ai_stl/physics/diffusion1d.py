@@ -5,7 +5,6 @@ import torch
 
 from ..models.mlp import MLP
 
-
 def pde_residual(model: MLP, coords: torch.Tensor, alpha: float = 0.1) -> torch.Tensor:
     """Residual u_t - alpha * u_xx at flattened coords (x, t)."""
     coords = coords.requires_grad_(True)
@@ -17,7 +16,6 @@ def pde_residual(model: MLP, coords: torch.Tensor, alpha: float = 0.1) -> torch.
         :, 0:1
     ]
     return u_t - alpha * u_xx
-
 
 def boundary_loss(
     model: MLP,
@@ -40,6 +38,5 @@ def boundary_loss(
     target = torch.sin(torch.pi * x)
     loss_ic = (model(ic) - target).square().mean()
     return loss_b + loss_ic
-
 
 __all__ = ["pde_residual", "boundary_loss"]
