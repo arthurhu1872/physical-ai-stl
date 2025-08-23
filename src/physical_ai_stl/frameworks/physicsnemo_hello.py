@@ -1,4 +1,4 @@
-"""Minimal NVIDIA PhysicsNeMo integration test."""
+"""Minimal PhysicsNeMo integration test."""
 from __future__ import annotations
 
 def physicsnemo_version() -> str:
@@ -7,7 +7,7 @@ def physicsnemo_version() -> str:
     Raises
     ------
     ImportError
-        If ``physicsnemo`` is not installed.
+        If ''physicsnemo'' is not installed.
     """
     try:
         import physicsnemo  # type: ignore
