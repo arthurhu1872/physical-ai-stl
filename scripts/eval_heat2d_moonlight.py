@@ -15,7 +15,7 @@ from physical_ai_stl.monitoring.moonlight_helper import (
 def main() -> None:
     frames = sorted(glob.glob("results/heat2d_*.npy")) or sorted(glob.glob("results/heat2d_t*.npy"))
     if not frames:
-        raise SystemExit("No frames found in results/. Run `python scripts/train_heat2d_strel.py` or the heat2d experiment first.")
+        raise SystemExit("No frames found in results/. Run 'python scripts/train_heat2d_strel.py' or the heat2d experiment first.")
     arrs = [np.load(p) for p in frames]
     u = np.stack(arrs, axis=-1)  # (n_x, n_y, n_t)
     threshold = float(u.mean() + 0.5 * u.std())
@@ -27,7 +27,7 @@ def main() -> None:
         print("MoonLight monitor sample:", out[:2])
     except Exception as e:  # pragma: no cover - MoonLight optional
         print(f"MoonLight evaluation failed: {e}")
-    # proxy score: frames with no hotspot
+    # proxy score: frames with no 'hot' area
     satisfied = sum(int(np.mean(frame) <= 0.0 + 1e-6) for frame in signal)
     frac = satisfied / len(signal)
     print(f"Heat2D: fraction of frames with no 'hot' area (proxy): {frac:.3f}")
