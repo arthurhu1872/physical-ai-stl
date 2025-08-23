@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 def spatial_spec_version() -> str:
-    """Return the installed ``spatial_spec`` package version.
+    """Return the installed ''spatial_spec'' package version.
 
     Raises
     ------
     ImportError
-        If ``spatial_spec`` is not installed.
+        If ''spatial_spec'' is not installed.
     """
     try:
         import spatial_spec  # type: ignore
