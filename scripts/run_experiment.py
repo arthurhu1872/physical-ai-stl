@@ -11,8 +11,8 @@ def _load_yaml(path: str) -> Dict[str, Any]:
         import yaml  # type: ignore
     except Exception as e:
         raise SystemExit(
-            "Missing dependency: pyyaml. Install it with `pip install pyyaml` "
-            "or `pip install -r requirements-extra.txt`."
+            "Missing dependency: pyyaml. Install it with 'pip install pyyaml' "
+            "or 'pip install -r requirements-extra.txt'."
         ) from e
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
