@@ -6,7 +6,7 @@ This note lists example domains suitable for combining physics-informed models w
 - **STL angle:** Expressions over pollutant thresholds (e.g., "PM2.5 must remain below a bound within 1 hour after a spike").
 
 ## Diffusion and heat PDEs
-- **Source:** canonical 1D/2D diffusion equations (already implemented in 'pde_example.py').
+- **Source:** canonical 1D/2D diffusion equations (already implemented in `pde_example.py`).
 - **STL angle:** Ensure temperatures stay within safe limits everywhere and for all times; test spatial containment of hotspots.
 
 ## Burgers' equation / fluid dynamics
