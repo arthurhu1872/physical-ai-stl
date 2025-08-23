@@ -30,5 +30,4 @@ def temporal_hello():
     arr = np.array(out, dtype=float)
     return arr
 
-
 __all__ = ["temporal_hello"]
