@@ -17,5 +17,4 @@ class CSVLogger:
         with open(self.path, "a", newline="") as f:
             csv.writer(f).writerow(list(row))
 
-
 __all__ = ["CSVLogger"]
