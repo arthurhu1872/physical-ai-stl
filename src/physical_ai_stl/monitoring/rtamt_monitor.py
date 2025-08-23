@@ -9,7 +9,7 @@ def _import_rtamt():
         import rtamt  # type: ignore
     except Exception as e:  # pragma: no cover - optional dependency
         raise ImportError(
-            "rtamt is not installed. Run `pip install rtamt` to use this module."
+            "rtamt is not installed. Run 'pip install rtamt' to use this module."
         ) from e
     return rtamt
 
