@@ -1,5 +1,4 @@
 """Run ablation study over STL penalty weights for diffusion1d PINN."""
-
 from __future__ import annotations
 
 import argparse
@@ -33,7 +32,7 @@ def train_once(stl_weight: float, epochs: int = 100, seed: int = 0) -> float:
         loss_pde = res.square().mean()
         loss_bcic = boundary_loss(model, device=device)
         with torch.no_grad():
-            inp = torch.stack([X.reshape(-1), T.reshape(-1)], dim=-1)
+            inp = XT
         u = model(inp).reshape(n_x, n_t)
         u_mean = u.mean(dim=0)
         margins = pred_leq(u_mean, u_max)
@@ -44,8 +43,7 @@ def train_once(stl_weight: float, epochs: int = 100, seed: int = 0) -> float:
         opt.step()
     # Compute final robustness for this weight
     with torch.no_grad():
-        inp = torch.stack([X.reshape(-1), T.reshape(-1)], dim=-1)
-        u = model(inp).reshape(n_x, n_t)
+        u = model(XT).reshape(n_x, n_t)
         u_mean = u.mean(dim=0)
         final_rob = always(pred_leq(u_mean, u_max), temp=0.1, time_dim=0)
     return float(final_rob)
