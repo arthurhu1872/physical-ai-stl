@@ -1,7 +1,5 @@
 """Helpers for building and evaluating STL specs with RTAMT (offline)."""
-
 from __future__ import annotations
-
 from typing import Iterable
 
 def _import_rtamt():
@@ -13,7 +11,6 @@ def _import_rtamt():
         ) from e
     return rtamt
 
-
 def stl_always_upper_bound(var: str = "u", u_max: float = 1.0):
     """Return a parsed RTAMT discrete-time spec: G (var <= u_max)."""
     rtamt = _import_rtamt()
@@ -22,7 +19,6 @@ def stl_always_upper_bound(var: str = "u", u_max: float = 1.0):
     spec.spec = f"always ({var} <= {float(u_max)})"
     spec.parse()
     return spec
-
 
 def stl_response_within(var: str, boundary: str, theta: float, tau: int):
     """Return spec: always( boundary >= theta -> eventually[0:tau] (var >= theta) )."""
@@ -36,20 +32,25 @@ def stl_response_within(var: str, boundary: str, theta: float, tau: int):
     spec.parse()
     return spec
 
-
 def evaluate_series(spec, var: str, series: Iterable[float], dt: float = 1.0) -> float:
     """Evaluate robustness for a single variable time series against spec."""
     # Build (time, value) pairs
     ts = [(i * dt, float(v)) for i, v in enumerate(series)]
-    # RTAMT Python API accepts dicts of name->series
+    # RTAMT Python API accepts a dict of var->series
     rob = spec.evaluate({var: ts})
-    # Some versions return a list/tuple; make it scalar
     try:
         return float(rob)
     except Exception:
-        # fall back to first element
-        return float(rob[0] if isinstance(rob, (list, tuple)) else rob)
-
+        if isinstance(rob, (list, tuple)):
+            if not rob:
+                return 0.0
+            first = rob[0]
+            if isinstance(first, (list, tuple)):
+                return float(first[1] if len(first) > 1 else first[0])
+            else:
+                return float(first)
+        else:
+            return float(rob)
 
 __all__ = [
     "stl_always_upper_bound",
