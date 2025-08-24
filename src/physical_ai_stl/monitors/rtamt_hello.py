@@ -14,8 +14,21 @@ def stl_hello_offline() -> float:
     spec.parse()
     # simple, safe-to-evaluate time-series
     ts = [(0, 0.2), (1, 0.4), (2, 1.1)]
-    # robustness at t0
-    rob = spec.evaluate(["u"], [ts])[0][1]
-    return float(rob)
+    # robustness at t0 (handle output format differences)
+    rob_val = spec.evaluate(["u"], [ts])
+    try:
+        rob_val = float(rob_val)
+    except Exception:
+        if isinstance(rob_val, (list, tuple)):
+            if not rob_val:
+                rob_val = 0.0
+            else:
+                first = rob_val[0]
+                if isinstance(first, (list, tuple)):
+                    rob_val = first[1] if len(first) > 1 else first[0]
+                else:
+                    rob_val = first
+        rob_val = float(rob_val)
+    return rob_val
 
 __all__ = ["stl_hello_offline"]
