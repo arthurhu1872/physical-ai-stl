@@ -1,9 +1,7 @@
 """Helper functions for spatio-temporal monitoring using MoonLight."""
-
 from __future__ import annotations
 
 from typing import List, Tuple
-
 import numpy as np
 
 def _import_moonlight():
@@ -26,7 +24,7 @@ def get_monitor(mls, name: str):
 def build_grid_graph(n_x: int, n_y: int) -> Tuple[np.ndarray, np.ndarray]:
     """Return (nodes, edges) for an n_x by n_y grid graph."""
     nodes = np.arange(n_x * n_y).reshape(n_x, n_y)
-    edges = []
+    edges: list[Tuple[int, int]] = []
     for i in range(n_x):
         for j in range(n_y):
             v = nodes[i, j]
@@ -42,13 +40,13 @@ def field_to_signal(u: np.ndarray, threshold: float | None = None) -> List[List[
     """Convert a (n_x, n_y, n_t) field to MoonLight's node-wise signal format."""
     n_x, n_y, n_t = u.shape
     n_nodes = n_x * n_y
-    signal: List[List[List[float]]] = []
-    for t in range(n_t):
-        frame = u[:, :, t].reshape(n_nodes, 1)
-        if threshold is not None:
-            frame = (frame >= threshold).astype(float)
-        signal.append(frame.tolist())
-    return signal
+    if threshold is not None:
+        signal_array = (u.reshape(n_nodes, n_t).T >= threshold).astype(float)
+    else:
+        signal_array = u.reshape(n_nodes, n_t).T.astype(float)
+    # Add a feature dimension of size 1 for each node, then convert to nested lists
+    signal_list: List[List[List[float]]] = signal_array[..., None].tolist()
+    return signal_list
 
 __all__ = [
     "load_script_from_file",
