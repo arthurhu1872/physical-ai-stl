@@ -1,5 +1,4 @@
 """Train diffusion1d PINN with an STL penalty."""
-
 import argparse
 from pathlib import Path
 
@@ -33,29 +32,29 @@ def main() -> None:
     model = MLP(in_dim=2, out_dim=1, hidden=(64, 64, 64), activation=nn.Tanh()).to(device)
     opt = optim.Adam(model.parameters(), lr=args.lr)
 
-    # Physics + STL
+    # Physics + STL setup
     alpha = float(args.alpha)
     penalty = STLPenalty(weight=float(args.lambda_stl), margin=0.0)
     u_max = 1.0
     batch = 4096
 
     for _ in trange(args.epochs, desc="train_diffusion_stl"):
-        # sample interior points
+        # Sample interior points for PDE loss
         idx = torch.randint(0, XT.shape[0], (batch,), device=device)
         coords = XT[idx]
 
         res = pde_residual(model, coords, alpha=alpha)
         loss_pde = res.square().mean()
 
-        # BC/IC
+        # Boundary/initial condition loss
         loss_bc = boundary_loss(model, device=device)
 
         # Temporal STL: G (mean_x u <= u_max)
         with torch.no_grad():
-            inp = torch.stack([X.reshape(-1), T.reshape(-1)], dim=-1)
-        u = model(inp).reshape(args.nx, args.nt)   # u(x,t)
+            inp = XT
+        u = model(inp).reshape(args.nx, args.nt)   # u(x,t) over entire grid
         u_mean = u.mean(dim=0)                     # time-series (mean over x)
-        margins = pred_leq(u_mean, u_max)          # margin = c - u(t)
+        margins = pred_leq(u_mean, u_max)          # margin = u_max - u(t)
         rob = always(margins, temp=0.1, time_dim=0)
         loss_stl = penalty(rob)
 
@@ -64,7 +63,7 @@ def main() -> None:
         loss.backward()
         opt.step()
 
-    # Save artifact for evaluation script
+    # Save model outputs for evaluation
     out_dir = Path(args.results)
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"diffusion_{args.tag}.pt"
