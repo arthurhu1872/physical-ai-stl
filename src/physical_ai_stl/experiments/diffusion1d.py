@@ -1,5 +1,4 @@
 """Training loop for a 1D diffusion PINN with optional STL penalty."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -61,7 +60,8 @@ def run_diffusion1d(cfg_dict: Dict[str, Any]) -> str:
     model = MLP(in_dim=2, out_dim=1, hidden=cfg.hidden, activation=_activation(cfg.activation)).to(device)
     opt = optim.Adam(model.parameters(), lr=cfg.lr)
     penalty = STLPenalty(weight=cfg.stl_weight, margin=0.0) if cfg.stl_use else None
-    logger = CSVLogger(f"{cfg.results_dir}/diffusion1d_{cfg.tag}.csv", header=["epoch","loss","loss_pde","loss_bcic","loss_stl","rob"])
+    logger = CSVLogger(f"{cfg.results_dir}/diffusion1d_{cfg.tag}.csv",
+                       header=["epoch", "loss", "loss_pde", "loss_bcic", "loss_stl", "rob"])
     for epoch in range(cfg.epochs):
         idx = torch.randint(0, XT.shape[0], (cfg.batch,), device=device)
         coords = XT[idx]
@@ -71,8 +71,9 @@ def run_diffusion1d(cfg_dict: Dict[str, Any]) -> str:
         loss_stl = torch.tensor(0.0)
         rob = torch.tensor(0.0)
         if penalty is not None:
+            # Compute STL robustness on the entire space-time grid
             with torch.no_grad():
-                inp = torch.stack([X.reshape(-1), T.reshape(-1)], dim=-1)
+                inp = XT
             u = model(inp).reshape(cfg.n_x, cfg.n_t)
             u_mean = u.mean(dim=0)
             margins = pred_leq(u_mean, cfg.stl_u_max)
@@ -82,10 +83,11 @@ def run_diffusion1d(cfg_dict: Dict[str, Any]) -> str:
         opt.zero_grad()
         loss.backward()
         opt.step()
-        logger.append([epoch, float(loss), float(loss_pde), float(loss_bcic), float(loss_stl), float(rob)])
+        logger.append([epoch, float(loss), float(loss_pde), float(loss_bcic),
+                       float(loss_stl), float(rob)])
+    # After training, evaluate model on full grid and save results
     with torch.no_grad():
-        inp = torch.stack([X.reshape(-1), T.reshape(-1)], dim=-1)
-        u = model(inp).reshape(cfg.n_x, cfg.n_t)
+        u = model(XT).reshape(cfg.n_x, cfg.n_t)
     out_path = f"{cfg.results_dir}/diffusion_{cfg.tag}.pt"
     torch.save({"u": u.cpu(), "X": X.cpu(), "T": T.cpu(), "u_max": float(cfg.stl_u_max)}, out_path)
     return out_path
