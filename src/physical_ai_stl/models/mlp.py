@@ -1,9 +1,7 @@
 """Simple MLP used in PINN examples."""
-
 from __future__ import annotations
 
 from typing import Sequence
-
 import torch
 import torch.nn as nn
 
@@ -20,10 +18,16 @@ class MLP(nn.Module):
         super().__init__()
         layers: list[nn.Module] = []
         last = in_dim
+        # Use a fresh activation instance for each layer to avoid shared state across layers
+        if isinstance(activation, nn.Module):
+            act_cls = activation.__class__
+        else:
+            raise TypeError("activation must be an instance of torch.nn.Module")
         for h in hidden:
-            layers += [nn.Linear(last, h), activation]
+            layers.append(nn.Linear(last, h))
+            layers.append(act_cls())
             last = h
-        layers += [nn.Linear(last, out_dim)]
+        layers.append(nn.Linear(last, out_dim))
         self.net = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
