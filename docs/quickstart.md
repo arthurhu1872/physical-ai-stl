@@ -48,6 +48,11 @@ The repository uses 'pytest' for tests. To run all tests:
 
 This will execute the smoke tests in the 'tests' directory.
 
+## New runnable demos
+
+- **Neuromancer constrained training**: `python scripts/train_neuromancer_stl.py --epochs 200 --bound 0.8`
+- **SpaTiaL formula evaluation**: `python scripts/spatial_demo.py --T 50`
+
 ---
 
 For more information on Signal Temporal Logic (STL) and spatio-temporal specifications, see the documentation for [RTAMT](https://github.com/nickovic/rtamt) and [MoonLight](https://pypi.org/project/moonlight/).
