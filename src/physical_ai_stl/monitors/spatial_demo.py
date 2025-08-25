@@ -6,7 +6,7 @@ from typing import Tuple
 import numpy as np
 
 try:
-    # SpaTiaL uses module name `spatial` on PyPI
+    # SpaTiaL uses module name 'spatial' on PyPI
     from spatial.logic import Spatial  # type: ignore
     from spatial.geometry import Circle, Polygon, StaticObject, DynamicObject  # type: ignore
 except Exception as e:  # pragma: no cover - optional dependency path
