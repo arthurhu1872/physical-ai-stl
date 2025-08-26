@@ -1,6 +1,6 @@
 # physical-ai-stl
 
-Scaffold for experimenting with **Signal Temporal Logic (STL)** and **spatio‑temporal logic (STREL)** monitoring in the context of physics‑based machine learning models. It's intended to be a **teaching and prototyping repository**, not a production‑ready library. The goal is to make it easy to tinker with temporal/spatio‑temporal specifications alongside simple neural ODE or PDE examples. It forms part of a larger initiative to explore "physical AI" — blending physics‑informed models (neural ODEs/PDEs, PINNs) with formal specification monitoring to ensure safety, stability and robustness in AI‑driven systems.
+Scaffold for experimenting with **Signal Temporal Logic (STL)** and **spatio‑temporal logic (STREL)** monitoring in the context of physics‑based machine learning models. It's intended to be a **teaching and prototyping repository**, not a production‑ready library. The goal is to make it easy to tinker with temporal/spatio‑temporal specifications alongside simple neural ODE or PDE examples. It forms part of a larger initiative to explore `physical AI` — blending physics‑informed models (neural ODEs/PDEs, PINNs) with formal specification monitoring to ensure safety, stability and robustness in AI‑driven systems.
 
 ## Status
 
