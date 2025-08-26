@@ -1,15 +1,19 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "physical-ai-stl"
 version = "0.1.0"
 description = "Signal Temporal Logic (STL) and spatio-temporal logic (STREL) monitoring for physics-based ML models"
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-    "numpy>=1.23,<2.0",
-    "pytest>=7.0"
+    "numpy>=1.23,<2.0"
 ]
 
 [project.optional-dependencies]
+# Full stack for experiments and monitoring (heavy deps)
 full = [
     "torch",
     "matplotlib",
@@ -22,6 +26,18 @@ full = [
     "physicsnemo",
     "spatial-spec"
 ]
+# Developer extras
 dev = [
-    "ruff>=0.5.6"
+    "ruff>=0.5.6",
+    "pytest>=7.0"
 ]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Ensure PEP 561 typed marker is included in wheels/sdists
+[tool.setuptools.package-data]
+physical_ai_stl = ["py.typed"]
