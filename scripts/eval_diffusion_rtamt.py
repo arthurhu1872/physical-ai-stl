@@ -1,5 +1,4 @@
 """Evaluate RTAMT robustness for a saved diffusion PINN checkpoint."""
-
 from __future__ import annotations
 
 import argparse
@@ -13,7 +12,7 @@ from physical_ai_stl.monitoring.rtamt_monitor import (
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ckpt", type=str, default="results/diffusion_run.pt",
+    ap.add_argument("--ckpt", type=str, default="results/diffusion_week2.pt",
                     help="Path to a saved checkpoint (torch.save dict with keys 'u', 'u_max', etc.).")
     ap.add_argument("--var", type=str, default="u",
                     help="Tensor key in the checkpoint dict to evaluate (default: 'u').")
