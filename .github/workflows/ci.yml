@@ -1,5 +1,5 @@
 name: ci
-on:
+"on":
   push:
   pull_request:
 
@@ -13,6 +13,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
@@ -25,6 +26,7 @@ jobs:
       - name: Lint (ruff)
         run: |
           source .venv/bin/activate
+          # Lint tests (as you had); consider `ruff check .` to lint src too
           ruff check tests
 
       - name: Run tests
