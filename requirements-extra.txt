@@ -10,3 +10,4 @@ torchphysics
 physicsnemo
 spatial-spec
 pytorch-lightning
+spatial
