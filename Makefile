@@ -1,7 +1,7 @@
 .PHONY: help test lint train1d audit1d heat2d ablate plot env survey
 
 help:
-        @echo "Targets: test, lint, train1d, audit1d, heat2d, ablate, plot, env, survey"
+	@echo "Targets: test, lint, train1d, audit1d, heat2d, ablate, plot, env, survey"
 
 test: ; pytest -q
 lint: ; ruff check .
