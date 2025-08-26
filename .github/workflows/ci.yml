@@ -21,12 +21,13 @@ jobs:
           source .venv/bin/activate
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install -e .[dev]
+          pip install -e .
 
       - name: Lint (ruff)
         run: |
           source .venv/bin/activate
-          ruff check .
+          # Lint tests (as you had); consider `ruff check .` to lint src too
+          ruff check tests
 
       - name: Run tests
         run: |
