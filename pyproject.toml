@@ -24,7 +24,9 @@ full = [
     "neuromancer",
     "torchphysics",
     "physicsnemo",
-    "spatial-spec"
+    "spatial-spec",
+    "spatial",
+    "pytorch-lightning"
 ]
 # Developer extras
 dev = [
@@ -38,6 +40,5 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
-# Ensure PEP 561 typed marker is included in wheels/sdists
 [tool.setuptools.package-data]
 physical_ai_stl = ["py.typed"]
