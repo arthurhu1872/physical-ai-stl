@@ -1,4 +1,4 @@
-name: CI — Utopic Dragon #95
+name: CI #95
 
 on:
   push:
