@@ -22,9 +22,10 @@ jobs:
           fetch-depth: 1
 
       - name: Ruff (lint tests/)
-        uses: astral-sh/ruff-action@v1
+        uses: astral-sh/ruff-action@v3
         with:
-          args: "check tests --output-format=github"
+          src: tests
+          args: "check --output-format=github"
 
   test:
     name: Tests (pytest)
@@ -52,10 +53,10 @@ jobs:
           PIP_PROGRESS_BAR: 'off'
         run: |
           set -euo pipefail
-          python -m pip install -U pip wheel
+          python -m pip install -U pip wheel setuptools
           pip install -r requirements.txt
-          # Project code in editable mode; deps already satisfied above.
-          pip install -e . --no-deps
+          # Project code in editable mode; deps already satisfied.
+          pip install -e . --no-deps --no-build-isolation
 
       - name: Run tests
         run: pytest -q
