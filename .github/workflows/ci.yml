@@ -6,6 +6,7 @@ name: ci
 permissions:
   contents: read
 
+# Cancel prior in-flight runs on the same ref for faster feedback.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -16,47 +17,88 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Checkout
+      - name: Checkout (only what we need)
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          sparse-checkout: |
+            tests
+            pyproject.toml
+            .ruff.toml
+            ruff.toml
+            ruff.yaml
+          sparse-checkout-cone-mode: false
 
-      - name: Ruff (lint tests/)
+      - name: Detect changed tests/config (PRs only)
+        if: github.event_name == 'pull_request'
+        id: diff
+        run: |
+          set -euo pipefail
+          base="${{ github.base_ref }}"
+          git fetch --no-tags --depth=1 origin "$base"
+          # List files changed vs. base branch
+          changed="$(git diff --name-only --diff-filter=ACMR "origin/$base...HEAD" -- tests/ pyproject.toml ruff.toml ruff.yaml .ruff.toml || true)"
+          if [ -n "$changed" ]; then
+            echo "any=true" >> "$GITHUB_OUTPUT"
+            printf "files<<EOF\n%s\nEOF\n" "$changed" >> "$GITHUB_OUTPUT"
+          else
+            echo "any=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ruff (lint changed tests/)
+        if: github.event_name == 'pull_request' && steps.diff.outputs.any == 'true'
         uses: astral-sh/ruff-action@v3
         with:
-          src: tests
           args: "check --output-format=github"
+          # Multi-line list from the previous step:
+          src: ${{ steps.diff.outputs.files }}
+
+      - name: Ruff (lint tests/ on push events)
+        if: github.event_name != 'pull_request'
+        uses: astral-sh/ruff-action@v3
+        with:
+          args: "check --output-format=github"
+          src: tests
+
+      - name: Ruff skipped (no changes)
+        if: github.event_name == 'pull_request' && steps.diff.outputs.any != 'true'
+        run: echo "No changes in tests/ or Ruff config; skipping lint."
 
   test:
     name: Tests (pytest)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # Install into the system Python (faster; no venv) when using uv pip.
+      UV_SYSTEM_PYTHON: '1'
+      # Faster pytest startup; avoids loading unrelated plugins on the runner.
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      # Use the local source tree directly; no editable install required.
+      PYTHONPATH: 'src'
     steps:
-      - name: Checkout
+      - name: Checkout (only src/tests/deps)
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: |
+          sparse-checkout: |
+            src
+            tests
             requirements.txt
             pyproject.toml
+          sparse-checkout-cone-mode: false
 
-      - name: Install dependencies
-        env:
-          PIP_DISABLE_PIP_VERSION_CHECK: '1'
-          PIP_NO_PYTHON_VERSION_WARNING: '1'
-          PIP_PROGRESS_BAR: 'off'
-        run: |
-          set -euo pipefail
-          python -m pip install -U pip wheel setuptools
-          pip install -r requirements.txt
-          # Project code in editable mode; deps already satisfied.
-          pip install -e . --no-deps --no-build-isolation
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Set up uv (with cache)
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install test dependencies (uv pip)
+        run: uv pip install -r requirements.txt
 
       - name: Run tests
         run: pytest -q
