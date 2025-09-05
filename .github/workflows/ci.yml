@@ -26,31 +26,32 @@ jobs:
             ruff.yaml
           sparse-checkout-cone-mode: false
 
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
       - id: diff
         if: github.event_name == 'pull_request'
         run: |
           set -euo pipefail
-          base="${{ github.base_ref }}"
-          git fetch --no-tags --depth=1 origin "+refs/heads/${base}:refs/remotes/origin/${base}"
-          changed="$(git diff --name-only --diff-filter=ACMR "origin/${base}...HEAD" -- tests/ pyproject.toml ruff.toml ruff.yaml .ruff.toml || true)"
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          git fetch --no-tags --depth=1 origin "$base_sha":"$base_sha"
+          changed="$(git diff --name-only --diff-filter=ACMR "$base_sha..$GITHUB_SHA" -- tests/ pyproject.toml ruff.toml ruff.yaml .ruff.toml || true)"
           if [ -n "$changed" ]; then
-            echo "any=true" >> "$GITHUB_OUTPUT"
             printf "files<<EOF\n%s\nEOF\n" "$changed" >> "$GITHUB_OUTPUT"
+            echo "any=true" >> "$GITHUB_OUTPUT"
           else
             echo "any=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: astral-sh/ruff-action@v3
-        if: github.event_name == 'pull_request' && steps.diff.outputs.any == 'true'
-        with:
-          args: check --output-format=github
-          src: ${{ steps.diff.outputs.files }}
+      - if: github.event_name == 'pull_request' && steps.diff.outputs.any == 'true'
+        run: |
+          set -euo pipefail
+          FILES="${{ steps.diff.outputs.files }}"
+          uvx ruff check --output-format=github $FILES
 
-      - uses: astral-sh/ruff-action@v3
-        if: github.event_name != 'pull_request'
-        with:
-          args: check --output-format=github
-          src: tests
+      - if: github.event_name != 'pull_request'
+        run: uvx ruff check --output-format=github tests
 
   test:
     runs-on: ubuntu-latest
@@ -65,6 +66,7 @@ jobs:
             src
             tests
             requirements.txt
+            pyproject.toml
           sparse-checkout-cone-mode: false
 
       - uses: actions/setup-python@v6
@@ -76,5 +78,6 @@ jobs:
           enable-cache: true
 
       - run: |
+          set -euo pipefail
           uv pip install --system -r requirements.txt
           pytest -q
