@@ -20,38 +20,10 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             tests
-            pyproject.toml
-            .ruff.toml
-            ruff.toml
-            ruff.yaml
-          sparse-checkout-cone-mode: false
-
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-
-      - id: diff
-        if: github.event_name == 'pull_request'
-        run: |
-          set -euo pipefail
-          base_sha="${{ github.event.pull_request.base.sha }}"
-          git fetch --no-tags --depth=1 origin "$base_sha":"$base_sha"
-          changed="$(git diff --name-only --diff-filter=ACMR "$base_sha..$GITHUB_SHA" -- tests/ pyproject.toml ruff.toml ruff.yaml .ruff.toml || true)"
-          if [ -n "$changed" ]; then
-            printf "files<<EOF\n%s\nEOF\n" "$changed" >> "$GITHUB_OUTPUT"
-            echo "any=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "any=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - if: github.event_name == 'pull_request' && steps.diff.outputs.any == 'true'
-        run: |
-          set -euo pipefail
-          FILES="${{ steps.diff.outputs.files }}"
-          uvx ruff check --output-format=github $FILES
-
-      - if: github.event_name != 'pull_request'
-        run: uvx ruff check --output-format=github tests
+      - run: uvx ruff check --output-format=github tests
 
   test:
     runs-on: ubuntu-latest
@@ -65,19 +37,11 @@ jobs:
           sparse-checkout: |
             src
             tests
-            requirements.txt
-            pyproject.toml
-          sparse-checkout-cone-mode: false
-
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.14.0-rc.2'
-
+          python-version: '3.11'
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-
-      - run: |
-          set -euo pipefail
-          uv pip install --system -r requirements.txt
-          pytest -q
+      - run: uv pip install --system 'numpy>=1.23,<2.0' 'pytest>=7.0'
+      - run: pytest -q
