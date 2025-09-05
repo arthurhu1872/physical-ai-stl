@@ -1,10 +1,16 @@
 name: ci
-'on': [push, pull_request]
+
+on:
+  push:
+  pull_request:
+
 permissions:
   contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -19,29 +25,33 @@ jobs:
             ruff.toml
             ruff.yaml
           sparse-checkout-cone-mode: false
-      - if: github.event_name == 'pull_request'
-        id: diff
+
+      - id: diff
+        if: github.event_name == 'pull_request'
         run: |
           set -euo pipefail
           base="${{ github.base_ref }}"
-          git fetch --no-tags --depth=1 origin "$base"
-          changed="$(git diff --name-only --diff-filter=ACMR "origin/$base...HEAD" -- tests/ pyproject.toml ruff.toml ruff.yaml .ruff.toml || true)"
+          git fetch --no-tags --depth=1 origin "+refs/heads/${base}:refs/remotes/origin/${base}"
+          changed="$(git diff --name-only --diff-filter=ACMR "origin/${base}...HEAD" -- tests/ pyproject.toml ruff.toml ruff.yaml .ruff.toml || true)"
           if [ -n "$changed" ]; then
             echo "any=true" >> "$GITHUB_OUTPUT"
             printf "files<<EOF\n%s\nEOF\n" "$changed" >> "$GITHUB_OUTPUT"
           else
             echo "any=false" >> "$GITHUB_OUTPUT"
           fi
-      - if: github.event_name == 'pull_request' && steps.diff.outputs.any == 'true'
-        uses: astral-sh/ruff-action@v3
+
+      - uses: astral-sh/ruff-action@v3
+        if: github.event_name == 'pull_request' && steps.diff.outputs.any == 'true'
         with:
           args: check --output-format=github
           src: ${{ steps.diff.outputs.files }}
-      - if: github.event_name != 'pull_request'
-        uses: astral-sh/ruff-action@v3
+
+      - uses: astral-sh/ruff-action@v3
+        if: github.event_name != 'pull_request'
         with:
           args: check --output-format=github
           src: tests
+
   test:
     runs-on: ubuntu-latest
     env:
@@ -56,11 +66,15 @@ jobs:
             tests
             requirements.txt
           sparse-checkout-cone-mode: false
+
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
+
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv pip install --system -r requirements.txt
-      - run: pytest -q
+
+      - run: |
+          uv pip install --system -r requirements.txt
+          pytest -q
