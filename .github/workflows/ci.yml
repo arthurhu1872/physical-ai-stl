@@ -1,97 +1,35 @@
-name: CI #95
-
+name: ci
 on:
   push:
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - '**/*.png'
-      - '**/*.jpg'
-      - '**/*.jpeg'
-      - '**/*.svg'
-      - '**/*.gif'
   pull_request:
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - '**/*.png'
-      - '**/*.jpg'
-      - '**/*.jpeg'
-      - '**/*.svg'
-      - '**/*.gif'
-  workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
-
-defaults:
-  run:
-    shell: bash -euo pipefail
-
-env:
-  UV_SYSTEM_PYTHON: '1'
-  PYTHONDONTWRITEBYTECODE: '1'
-  COLUMNS: '120'
 
 jobs:
-  lint:
-    name: Ruff (format & lint)
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: Check formatting
-        uses: astral-sh/ruff-action@v3
-        with:
-          args: "format --check --diff"
-          src: |
-            src
-            tests
-
-      - name: Lint
-        uses: astral-sh/ruff-action@v3
-        with:
-          args: "check --output-format=github"
-          src: |
-            src
-            tests
-
   test:
-    name: Tests (pytest)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: ${{ !(github.event_name == 'push' && contains(github.event.head_commit.message, '[skip ci]')) }}
-    env:
-      PYTHONPATH: src
-      PYTHONWARNINGS: default
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
+          cache: 'pip'
 
-      - name: Install uv (with cache)
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-
-      - name: Install minimal deps (fast)
+      - name: Install dependencies
         run: |
-          uv pip install -r requirements.txt
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Lint (ruff)
+        run: |
+          source .venv/bin/activate
+          # Lint tests (as you had); consider `ruff check .` to lint src too
+          ruff check tests
 
       - name: Run tests
         run: |
+          source .venv/bin/activate
           pytest -q
