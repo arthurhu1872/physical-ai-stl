@@ -1,9 +1,9 @@
 # Candidate Datasets and Problem Spaces
 
-This note lists example domains suitable for combining physics-informed models with Signal Temporal Logic (STL) monitoring. They align with the "physical AI" direction.
+This note lists example domains suitable for combining physics-informed models with Signal Temporal Logic (STL) monitoring. They align with the `physical AI` direction.
 ## Air quality time series
 - **Source:** UCI Air Quality dataset and synthetic versions used in [STLnet](https://github.com/meiyima/STLnet).
-- **STL angle:** Expressions over pollutant thresholds (e.g., "PM2.5 must remain below a bound within 1 hour after a spike").
+- **STL angle:** Expressions over pollutant thresholds (e.g., `PM2.5 must remain below a bound within 1 hour after a spike`).
 
 ## Diffusion and heat PDEs
 - **Source:** canonical 1D/2D diffusion equations (already implemented in `pde_example.py`).
