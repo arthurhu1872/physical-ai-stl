@@ -16,10 +16,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/ruff-action@v3
         with:
-          args: check --output-format=github
-          src: tests
+          fetch-depth: 1
+          sparse-checkout: |
+            tests
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uvx ruff check --output-format=github tests
 
   test:
     runs-on: ubuntu-latest
@@ -28,6 +32,11 @@ jobs:
       PYTHONPATH: src
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            src
+            tests
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
