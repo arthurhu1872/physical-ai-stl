@@ -16,14 +16,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v3
         with:
-          fetch-depth: 1
-          sparse-checkout: |
-            tests
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-      - run: uvx ruff check --output-format=github tests
+          args: check --output-format=github
+          src: tests
 
   test:
     runs-on: ubuntu-latest
@@ -32,16 +28,12 @@ jobs:
       PYTHONPATH: src
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          sparse-checkout: |
-            src
-            tests
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv pip install --system 'numpy>=1.23,<2.0' 'pytest>=7.0'
-      - run: pytest -q
+      - run: |
+          uv pip install --system 'numpy>=1.23,<2.0' 'pytest>=7.0'
+          pytest -q
