@@ -13,16 +13,17 @@ concurrency:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/ruff-action@v3
         with:
-          args: check --output-format=github
-          src: tests
+          # Run at repo root so ruff discovers pyproject.toml
+          src: .
+          args: check --output-format=github --config pyproject.toml
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
       PYTHONPATH: src
@@ -34,6 +35,14 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: |
-          uv pip install --system -r requirements.txt
-          pytest -q
+          prune-cache: true
+          cache-dependency-glob: |
+            **/requirements*.txt
+            **/pyproject.toml
+            **/uv.lock
+            uv.toml
+      - name: Install runtime + dev test deps (no CUDA)
+        run: |
+          uv pip install --system -r requirements.txt -r requirements-dev.txt
+      - name: Run tests
+        run: pytest -q
