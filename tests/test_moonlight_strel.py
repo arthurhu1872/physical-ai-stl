@@ -1,6 +1,4 @@
 import pytest
-
-
 def test_moonlight_strel_smoke() -> None:
     try:
         from physical_ai_stl.monitors.moonlight_strel_hello import strel_hello

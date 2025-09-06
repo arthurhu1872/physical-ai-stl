@@ -1,7 +1,5 @@
 """Minimal MoonLight 'hello' that can be skipped in CI if Java/MoonLight are missing."""
 from __future__ import annotations
-
-import numpy as np
 def temporal_hello():
     # Import lazily to allow tests to skip when missing.
     try:

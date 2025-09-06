@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
-import numpy as np
-
+import argparse
 try:
     from physical_ai_stl.monitoring.moonlight_helper import (
         build_grid_graph,

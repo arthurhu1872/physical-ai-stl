@@ -4,10 +4,8 @@ This script is a lightweight placeholder to keep CI lint/tests green.
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
-
-
+import argparse
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--epochs", type=int, default=1000, help="Number of training steps.")

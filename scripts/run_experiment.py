@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 import argparse
-import os
 def _load_yaml(path: str) -> dict[str, Any]:
     try:
         import yaml  # type: ignore

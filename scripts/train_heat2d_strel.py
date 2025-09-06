@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 from typing import Optional
+import argparse
 
-import numpy as np
-
-from physical_ai_stl.models.mlp import MLP
-from physical_ai_stl.physics.heat2d import bc_ic_heat2d, residual_heat2d
 from physical_ai_stl.training.grids import grid2d
-
 try:
     from physical_ai_stl.monitoring.moonlight_helper import (
         build_grid_graph,

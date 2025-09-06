@@ -1,5 +1,4 @@
 import pytest
-
 def test_moonlight_temporal_smoke() -> None:
     try:
         from physical_ai_stl.monitors.moonlight_hello import temporal_hello

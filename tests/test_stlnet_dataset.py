@@ -14,14 +14,12 @@ Design:
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 import math
-from typing import Iterable
 
-import numpy as np
 import pytest
 
 from physical_ai_stl.datasets import SyntheticSTLNetDataset
-
 EPS = 1e-9
 
 def _isclose(a: float, b: float, tol: float = EPS) -> bool:

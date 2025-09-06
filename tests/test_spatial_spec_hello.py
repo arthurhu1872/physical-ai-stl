@@ -1,5 +1,4 @@
 import pytest
-
 def test_spatial_spec_version() -> None:
     try:
         from physical_ai_stl.frameworks.spatial_spec_hello import spatial_spec_version

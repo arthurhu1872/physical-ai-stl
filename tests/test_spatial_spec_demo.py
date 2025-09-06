@@ -1,5 +1,4 @@
 import pytest
-
 def test_spatial_demo_smoke() -> None:
     try:
         from physical_ai_stl.monitors.spatial_demo import run_demo

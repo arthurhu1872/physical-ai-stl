@@ -1,8 +1,6 @@
 """Grid generation utilities for PDE examples."""
 from __future__ import annotations
 
-from typing import Tuple
-
 import torch
 def grid1d(
     n_x: int = 128,

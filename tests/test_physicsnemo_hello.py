@@ -1,5 +1,4 @@
 import pytest
-
 def test_physicsnemo_version() -> None:
     try:
         from physical_ai_stl.frameworks.physicsnemo_hello import physicsnemo_version

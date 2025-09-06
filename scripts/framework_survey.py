@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import importlib.metadata as metadata
-
 FRAMEWORKS = {
     "neuromancer": "PyTorch-based differentiable programming for physics-informed optimization",
     "physicsnemo": "NVIDIA's toolkit for physics-ML models and PDE solvers",

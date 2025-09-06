@@ -1,7 +1,5 @@
-import numpy as np
+
 from physical_ai_stl import pde_example as pe
-
-
 def test_compute_robustness_simple():
     sig = np.array([0.2, 0.4, 0.6])
     rob = pe.compute_robustness(sig, 0.0, 1.0)

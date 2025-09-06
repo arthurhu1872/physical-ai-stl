@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Optional
 import csv
-import os
 class CSVLogger:
     """Tiny CSV logger that appends one row per epoch."""
     def __init__(self, path: str, header: Optional[Iterable[str]] = None) -> None:

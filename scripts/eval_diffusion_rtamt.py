@@ -1,13 +1,10 @@
 """Evaluate RTAMT robustness for a saved diffusion PINN checkpoint."""
 
 from __future__ import annotations
-
-import argparse
 from pathlib import Path
-from typing import Any
-
 from physical_ai_stl.monitoring.rtamt_monitor import (
-    stl_always_upper_bound,
+from typing import Any
+import argparse
     evaluate_series,
 )
 

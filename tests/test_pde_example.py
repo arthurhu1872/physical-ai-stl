@@ -1,8 +1,6 @@
 """Tests for the PDE example module (pure NumPy)."""
-import numpy as np
 
 from physical_ai_stl.pde_example import (
-    simulate_diffusion,
     simulate_diffusion_with_clipping,
     compute_robustness,
     compute_spatiotemporal_robustness,

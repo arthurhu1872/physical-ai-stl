@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import os
 
 import matplotlib.pyplot as plt
 def _load_csv(path: str):

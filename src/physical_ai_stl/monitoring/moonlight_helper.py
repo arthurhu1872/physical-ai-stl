@@ -1,9 +1,5 @@
 """Helper functions for spatio-temporal monitoring using MoonLight."""
 from __future__ import annotations
-
-from typing import List, Tuple
-
-import numpy as np
 def _import_moonlight():
     try:
         from moonlight import ScriptLoader  # type: ignore

@@ -1,5 +1,4 @@
 import pytest
-
 def test_neuromancer_version() -> None:
     try:
         from physical_ai_stl.frameworks.neuromancer_hello import neuromancer_version

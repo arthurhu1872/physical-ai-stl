@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import numpy as np
-
 try:
     # SpaTiaL uses module name 'spatial' on PyPI
     from spatial.logic import Spatial  # type: ignore
-    from spatial.geometry import Circle, Polygon, StaticObject, DynamicObject  # type: ignore
+
 except Exception:  # pragma: no cover - optional dependency path
     Spatial = None  # type: ignore
 
@@ -25,7 +23,7 @@ def evaluate_formula(cfg: ToyScene) -> float:
     if Spatial is None:
         raise RuntimeError("SpaTiaL not available")
     # Placeholders: return a dummy robustness value
-    return float(0.0)
+    return 0.0
 
 
 def run_demo(T: int = 50) -> float:

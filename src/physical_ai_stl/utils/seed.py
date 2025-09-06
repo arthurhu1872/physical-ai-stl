@@ -5,7 +5,6 @@ def seed_everything(seed: int = 0) -> None:
 
     random.seed(seed)
     try:
-        import numpy as np
 
         np.random.seed(seed)
     except Exception:

@@ -3,8 +3,6 @@
 This file is intentionally dependency-light so it can run in CI without extra packages. The goal is to provide a tiny, \
     correct reference for Week 1–2 tests."""
 from __future__ import annotations
-
-import numpy as np
 def simulate_diffusion(
     length: int = 5,
     steps: int = 20,

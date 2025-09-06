@@ -1,10 +1,6 @@
 """Minimal synthetic dataset inspired by STLnet air quality examples."""
 
 from __future__ import annotations
-
-from typing import Tuple
-
-import numpy as np
 class SyntheticSTLNetDataset:
     """Generate a bounded sinusoidal time-series for STLnet-style demos.
 

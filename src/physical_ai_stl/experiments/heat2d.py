@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 from torch import optim
-import numpy as np
 import torch
 import torch.nn as nn
 

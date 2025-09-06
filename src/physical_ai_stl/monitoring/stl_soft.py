@@ -9,10 +9,8 @@ We provide:
 
 from __future__ import annotations
 
-import torch
 from torch import nn
-
-
+import torch
 def softmin(x: torch.Tensor, temp: float = 0.1, dim: int = -1) -> torch.Tensor:
     """Smooth approximation of min using log-sum-exp."""
     return -(temp * torch.logsumexp(-x / temp, dim=dim))

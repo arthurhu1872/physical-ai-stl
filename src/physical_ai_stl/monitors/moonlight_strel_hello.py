@@ -1,9 +1,6 @@
 """Simple spatio-temporal MoonLight example using STREL."""
 
 from __future__ import annotations
-
-import numpy as np
-
 try:
     from physical_ai_stl.monitoring.moonlight_helper import (
         build_grid_graph,

@@ -5,8 +5,6 @@ Example:
 """
 import argparse
 import json
-import os
-import sys
 
 from physical_ai_stl.frameworks.neuromancer_stl_demo import DemoConfig, train_demo
 def main():

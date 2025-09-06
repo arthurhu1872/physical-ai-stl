@@ -1,6 +1,4 @@
 import pytest
-
-# Skip these tests if PyTorch is not installed in the environment
 torch = pytest.importorskip("torch")
 
 from physical_ai_stl.monitoring import stl_soft as stl  # noqa: E402

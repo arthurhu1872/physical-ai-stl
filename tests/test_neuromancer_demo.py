@@ -1,5 +1,4 @@
 import pytest
-
 def test_neuromancer_demo_import_and_run() -> None:
     try:
         from physical_ai_stl.frameworks.neuromancer_stl_demo import DemoConfig, train_demo

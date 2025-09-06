@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import importlib
-import sys
 def _check(name: str) -> str:
     """Return a ✓/✗ string indicating whether ''name'' imports successfully."""
     try:
         importlib.import_module(name)
         return "✅"
     except Exception:  # pragma: no cover - purely diagnostic
-        return f"❌  ({e.__class__.__name__}: {e})"
+        return f"❌  ({e.__class__.__name__}: {exc})"
 
 def main() -> None:
     print("Environment check:")
