@@ -15,6 +15,7 @@ Design:
 from __future__ import annotations
 
 import math
+import numbers
 from typing import Iterable
 
 import numpy as np
@@ -56,34 +57,40 @@ def test_synthetic_stlnet_dataset_stl_ready() -> None:
         tL, vL = ds[-1]
         assert (tL, vL) == ds[n - 1]
 
-        # Types and simple bounds.
+        # Types and simple bounds (accept any real scalar; exclude bool).
         for t, v in ((t0, v0), (tL, vL)):
-            assert isinstance(t, float) and isinstance(v, float)
-            assert 0.0 <= t <= 1.0
+            assert isinstance(t, numbers.Real) and not isinstance(t, bool)
+            assert isinstance(v, numbers.Real) and not isinstance(v, bool)
+            assert 0.0 <= float(t) <= 1.0
             assert v == v and math.isfinite(v)  # not NaN, not +/-inf
 
-        # Monotone, evenly spaced time base over [0, 1].
-        assert t0 <= tL
+        # Monotone, evenly spaced, inclusive-endpoints time base over [0, 1].
+        assert float(t0) <= float(tL)
         if n >= 2:
-            step0 = ds[1][0] - t0
-            stepL = tL - ds[-2][0]
+            step0 = float(ds[1][0]) - float(t0)
+            stepL = float(tL) - float(ds[-2][0])
             expected = 1.0 / (n - 1)
             assert _isclose(step0, expected)
             assert _isclose(stepL, expected)
+            # Inclusive endpoints
+            assert _isclose(float(t0), 0.0)
+            assert _isclose(float(tL), 1.0)
 
         # Clean sinusoid exactness (within tight floating tolerance).
         # Probe boundaries and an interior point if available.
         probe_idxs = tuple({0, (1 if n > 1 else 0), n - 1})
         for i in probe_idxs:
             ti, vi = ds[i]
+            ti = float(ti)
             expected_vi = 0.5 * (math.sin(2.0 * math.pi * ti) + 1.0)
-            assert _isclose(vi, expected_vi), (i, ti, vi, expected_vi)
+            assert _isclose(float(vi), expected_vi), (i, ti, vi, expected_vi)
 
-        # For one moderate length, verify all steps equal expected (O(n) but tiny).
+        # For one moderate length, verify *all* steps equal expected (O(n) but tiny).
         if n == 33:
-            ts = [ds[i][0] for i in range(n)]
-            diffs_ok = all(_isclose(ts[i+1] - ts[i], 1.0 / (n - 1)) for i in range(n - 1))
-            assert diffs_ok
+            ts = [float(ds[i][0]) for i in range(n)]
+            expected = 1.0 / (n - 1)
+            for i in range(n - 1):
+                assert _isclose(ts[i + 1] - ts[i], expected)
 
 
 def test_synthetic_stlnet_dataset_sequence_semantics_and_zero_length() -> None:
@@ -107,7 +114,7 @@ def test_synthetic_stlnet_dataset_sequence_semantics_and_zero_length() -> None:
 def test_synthetic_stlnet_dataset_simple_stl_robustness() -> None:
     """Small, dependency-free STL checks on the noiseless signal."""
     ds = SyntheticSTLNetDataset(length=33, noise=0.0)
-    vals = [ds[i][1] for i in range(len(ds))]
+    vals = [float(ds[i][1]) for i in range(len(ds))]
 
     # eventually (u > 0.9): the peak near t=0.25 gives positive robustness.
     rob_ev = _robust_eventually_gt(vals, 0.9)
