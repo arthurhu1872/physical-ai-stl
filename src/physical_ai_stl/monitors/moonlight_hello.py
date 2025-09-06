@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 import numpy as np
-
 def temporal_hello():
     # Import lazily to allow tests to skip when missing.
     try:
         from moonlight import ScriptLoader  # type: ignore
-    except Exception as e:  # pragma: no cover
+    except Exception:  # pragma: no cover
         raise ImportError("moonlight not installed") from e
 
     t = np.arange(0.0, 1.0, 0.2)
@@ -15,9 +14,11 @@ def temporal_hello():
     y = np.cos(t)
 
     script = """
-    signal { real x; real y; }
-    domain boolean;
-    formula future = globally [0, 0.2] (x > y);
+        signal { real x
+    real y
+    }
+    domain boolean
+    formula future = globally [0, 0.2] (x > y)
     """
     mls = ScriptLoader.loadFromText(script)
     mon = mls.getMonitor("future")

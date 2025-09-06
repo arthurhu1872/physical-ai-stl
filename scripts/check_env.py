@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import importlib
 import sys
-
 def _check(name: str) -> str:
     """Return a ✓/✗ string indicating whether ''name'' imports successfully."""
     try:
         importlib.import_module(name)
         return "✅"
-    except Exception as e:  # pragma: no cover - purely diagnostic
+    except Exception:  # pragma: no cover - purely diagnostic
         return f"❌  ({e.__class__.__name__}: {e})"
 
 def main() -> None:

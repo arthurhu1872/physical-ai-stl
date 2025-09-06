@@ -1,10 +1,10 @@
 """Simple MLP used in PINN examples."""
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
+
 import torch
 import torch.nn as nn
-
 __all__ = ["MLP"]
 
 class MLP(nn.Module):

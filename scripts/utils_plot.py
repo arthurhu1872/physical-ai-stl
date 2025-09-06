@@ -2,7 +2,6 @@
 
 import matplotlib.pyplot as plt
 import torch
-
 def plot_u_1d(u: torch.Tensor, X: torch.Tensor, T: torch.Tensor, out: str = "figs/diffusion_heatmap.png") -> None:
     """Plot 1D diffusion field u(x,t) as a heatmap and save to file."""
     u_np = u.detach().cpu().numpy()

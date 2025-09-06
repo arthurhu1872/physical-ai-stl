@@ -1,39 +1,50 @@
-"""Evaluate a trained heat2d PINN against a MoonLight STREL spec."""
+"""Audit a saved Heat2D run using MoonLight (if available)."""
 
 from __future__ import annotations
 
-import glob
-
+import argparse
+from pathlib import Path
 import numpy as np
 
-from physical_ai_stl.monitoring.moonlight_helper import (
-    load_script_from_file,
-    get_monitor,
-    field_to_signal,
-)
+try:
+    from physical_ai_stl.monitoring.moonlight_helper import (
+        build_grid_graph,
+        field_to_signal,
+        get_monitor,
+        load_script_from_file,
+    )
+except Exception as exc:  # pragma: no cover
+    build_grid_graph = field_to_signal = get_monitor = load_script_from_file = None  # type: ignore
+    _moonlight_error = exc
+
 
 def main() -> None:
-    frames = sorted(glob.glob("results/heat2d_*.npy")) or sorted(glob.glob("results/heat2d_t*.npy"))
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--frames-dir", type=Path, default=Path("results/heat2d_frames"))
+    ap.add_argument("--mls", type=Path, default=Path("scripts/specs/contain_hotspot.mls"))
+    ap.add_argument("--nx", type=int, default=16)
+    ap.add_argument("--ny", type=int, default=16)
+    args = ap.parse_args()
+
+    if load_script_from_file is None:
+        print(f"[MoonLight] Skipping audit (moonlight not available): {_moonlight_error}")
+        return
+
+    frames = sorted(args.frames_dir.glob("*.npy"))
     if not frames:
-        raise SystemExit("No frames found in results/. Run 'python scripts/train_heat2d_strel.py' or the heat2d experiment first.")
-    arrs = [np.load(p) for p in frames]
-    u = np.stack(arrs, axis=-1)  # (n_x, n_y, n_t)
-    threshold = float(u.mean() + 0.5 * u.std())
-    mls = load_script_from_file("scripts/specs/contain_hotspot.mls")
+        print(f"No frames found in {args.frames_dir}")
+        return
+
+    mls = load_script_from_file(str(args.mls))
     mon = get_monitor(mls, "contain")
-    signal = field_to_signal(u, threshold=threshold)
-    try:
-        out = mon.monitor(signal)
-        print("MoonLight monitor sample:", out[:2])
-    except Exception as e:  # pragma: no cover - MoonLight optional
-        print(f"MoonLight evaluation failed: {e}")
-    # proxy score: frames with no 'hot' area
-    satisfied = sum(int(np.mean(frame) <= 0.0 + 1e-6) for frame in signal)
-    frac = satisfied / len(signal)
-    print(f"Heat2D: fraction of frames with no 'hot' area (proxy): {frac:.3f}")
+    graph = build_grid_graph(args.nx, args.ny)
+
+    arrs = [np.load(p) for p in frames]
+    u = np.stack(arrs, axis=-1)
+    sig = field_to_signal(u, threshold=float(u.mean() + 0.5 * u.std()))
+    out = mon.monitor_graph_time_series(graph, sig)
+    print("[MoonLight] monitor output (first 3 entries):", out[:3])
+
 
 if __name__ == "__main__":
-    try:
-        main()
-    except ImportError as e:
-        print(f"Skipping MoonLight run: {e}")
+    main()

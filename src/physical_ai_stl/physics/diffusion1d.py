@@ -4,7 +4,6 @@ from __future__ import annotations
 import torch
 
 from ..models.mlp import MLP
-
 def pde_residual(model: MLP, coords: torch.Tensor, alpha: float = 0.1) -> torch.Tensor:
     """Residual u_t - alpha * u_xx at flattened coords (x, t)."""
     coords = coords.requires_grad_(True)

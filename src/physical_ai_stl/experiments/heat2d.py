@@ -2,20 +2,20 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
+from torch import optim
 import numpy as np
 import torch
 import torch.nn as nn
-from torch import optim
 
 from ..models.mlp import MLP
-from ..training.grids import grid2d
 from ..physics.heat2d import residual_heat2d, bc_ic_heat2d
-from ..utils.seed import seed_everything
+from ..training.grids import grid2d
 from ..utils.logger import CSVLogger
-
+from ..utils.seed import seed_everything
 __all__ = ["Heat2DConfig", "run_heat2d"]
 
 @dataclass
@@ -47,7 +47,7 @@ def _gradmag(u: torch.Tensor) -> np.ndarray:
     gy[:, 1:-1] = 0.5 * (u_np[:, 2:] - u_np[:, :-2])
     return np.sqrt(gx * gx + gy * gy)
 
-def run_heat2d(cfg_dict: Dict[str, Any]) -> List[str]:
+def run_heat2d(cfg_dict: dict[str, Any]) -> list[str]:
     cfg = Heat2DConfig(
         hidden=tuple(cfg_dict.get("model", {}).get("hidden", (64,64,64))),
         activation=cfg_dict.get("model", {}).get("activation", "tanh"),
@@ -82,7 +82,7 @@ def run_heat2d(cfg_dict: Dict[str, Any]) -> List[str]:
         loss.backward()
         opt.step()
         logger.append([epoch, float(loss), float(loss_pde), float(loss_bcic)])
-    saved: List[str] = []
+    saved: list[str] = []
     if cfg.save_frames:
         with torch.no_grad():
             for k in cfg.frames_idx:

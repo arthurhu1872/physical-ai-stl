@@ -1,17 +1,16 @@
 """Train diffusion1d PINN with an STL penalty."""
-import argparse
 from pathlib import Path
+import argparse
 
-import torch
 from torch import nn, optim
 from tqdm import trange
+import torch
 
 from physical_ai_stl.models.mlp import MLP
-from physical_ai_stl.training.grids import grid1d
-from physical_ai_stl.physics.diffusion1d import pde_residual, boundary_loss
 from physical_ai_stl.monitoring.stl_soft import pred_leq, always, STLPenalty
+from physical_ai_stl.physics.diffusion1d import pde_residual, boundary_loss
+from physical_ai_stl.training.grids import grid1d
 from physical_ai_stl.utils.seed import seed_everything
-
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--epochs", type=int, default=3000)

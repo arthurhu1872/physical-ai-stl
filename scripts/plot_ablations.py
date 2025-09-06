@@ -7,10 +7,9 @@ import csv
 import os
 
 import matplotlib.pyplot as plt
-
 def _load_csv(path: str):
     xs, ys = [], []
-    with open(path, "r", newline="") as f:
+    with open(path, newline="") as f:
         reader = csv.reader(f)
         next(reader, None)
         for row in reader:

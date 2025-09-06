@@ -3,15 +3,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Any
-import torch
-from torch import nn, optim
-from ..models.mlp import MLP
-from ..training.grids import grid1d
-from ..physics.diffusion1d import pde_residual, boundary_loss
-from ..monitoring.stl_soft import pred_leq, always, STLPenalty
-from ..utils.seed import seed_everything
-from ..utils.logger import CSVLogger
 
+from torch import nn, optim
+import torch
+
+from ..models.mlp import MLP
+from ..monitoring.stl_soft import pred_leq, always, STLPenalty
+from ..physics.diffusion1d import pde_residual, boundary_loss
+from ..training.grids import grid1d
+from ..utils.logger import CSVLogger
+from ..utils.seed import seed_everything
 __all__ = ["Diffusion1DConfig", "run_diffusion1d"]
 
 @dataclass
@@ -36,7 +37,7 @@ def _activation(name: str) -> nn.Module:
     name = name.lower()
     return {"tanh": nn.Tanh(), "relu": nn.ReLU(), "gelu": nn.GELU()}.get(name, nn.Tanh())
 
-def run_diffusion1d(cfg_dict: Dict[str, Any]) -> str:
+def run_diffusion1d(cfg_dict: dict[str, Any]) -> str:
     cfg = Diffusion1DConfig(
         hidden=tuple(cfg_dict.get("model", {}).get("hidden", (64, 64, 64))),
         activation=cfg_dict.get("model", {}).get("activation", "tanh"),

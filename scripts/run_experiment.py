@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict
 import argparse
 import os
-from typing import Any, Dict
-
-def _load_yaml(path: str) -> Dict[str, Any]:
+def _load_yaml(path: str) -> dict[str, Any]:
     try:
         import yaml  # type: ignore
-    except Exception as e:
+    except Exception:
         raise SystemExit(
             "Missing dependency: pyyaml. Install it with 'pip install pyyaml' "
             "or 'pip install -r requirements-extra.txt'."
         ) from e
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 def main() -> None:

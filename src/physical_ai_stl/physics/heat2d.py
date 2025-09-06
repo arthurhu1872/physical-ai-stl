@@ -4,7 +4,6 @@ from __future__ import annotations
 import torch
 
 from ..models.mlp import MLP
-
 def residual_heat2d(model: MLP, coords: torch.Tensor, alpha: float = 0.1) -> torch.Tensor:
     """Residual u_t - alpha * (u_xx + u_yy) for coords (x,y,t)."""
     coords = coords.requires_grad_(True)

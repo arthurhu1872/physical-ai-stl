@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 def seed_everything(seed: int = 0) -> None:
     """Seed numpy, random, and torch (if available)."""
     import random

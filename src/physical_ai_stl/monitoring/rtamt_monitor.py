@@ -1,11 +1,11 @@
 """Helpers for building and evaluating STL specs with RTAMT (offline)."""
 from __future__ import annotations
-from typing import Iterable
 
+from collections.abc import Iterable
 def _import_rtamt():
     try:
         import rtamt  # type: ignore
-    except Exception as e:  # pragma: no cover - optional dependency
+    except Exception:  # pragma: no cover - optional dependency
         raise ImportError(
             "rtamt is not installed. Run 'pip install rtamt' to use this module."
         ) from e
@@ -41,11 +41,11 @@ def evaluate_series(spec, var: str, series: Iterable[float], dt: float = 1.0) ->
     try:
         return float(rob)
     except Exception:
-        if isinstance(rob, (list, tuple)):
+        if isinstance(rob, list | tuple):
             if not rob:
                 return 0.0
             first = rob[0]
-            if isinstance(first, (list, tuple)):
+            if isinstance(first, list | tuple):
                 return float(first[1] if len(first) > 1 else first[0])
             else:
                 return float(first)

@@ -1,6 +1,5 @@
 """Minimal Neuromancer integration test."""
 from __future__ import annotations
-
 def neuromancer_version() -> str:
     """Return the installed Neuromancer version string.
 
@@ -11,7 +10,7 @@ def neuromancer_version() -> str:
     """
     try:
         import neuromancer  # type: ignore
-    except Exception as e:  # pragma: no cover
+    except Exception:  # pragma: no cover
         raise ImportError("neuromancer not installed") from e
     return getattr(neuromancer, "__version__", "unknown")
 

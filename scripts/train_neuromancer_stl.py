@@ -3,9 +3,12 @@
 Example:
     python scripts/train_neuromancer_stl.py --epochs 200 --bound 0.8 --lr 1e-3
 """
-import argparse, json, os, sys
-from physical_ai_stl.frameworks.neuromancer_stl_demo import DemoConfig, train_demo
+import argparse
+import json
+import os
+import sys
 
+from physical_ai_stl.frameworks.neuromancer_stl_demo import DemoConfig, train_demo
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--epochs', type=int, default=200)

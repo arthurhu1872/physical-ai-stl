@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Dict, Optional
 import math
 import os
-from typing import Dict, Optional
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 @dataclass
 class DemoConfig:
     n: int = 256
@@ -20,7 +19,7 @@ class DemoConfig:
     device: str = "cpu"
     seed: int = 7
 
-def _make_data(n: int, device: str = "cpu") -> Dict[str, torch.Tensor]:
+def _make_data(n: int, device: str = "cpu") -> dict[str, torch.Tensor]:
     t = torch.linspace(0.0, 1.0, steps=n, device=device).unsqueeze(-1)  # (n,1)
     y_target = torch.sin(2.0 * math.pi * t)  # (n,1)
     return {"t": t, "y_target": y_target}
@@ -38,7 +37,7 @@ def _mlp(insize: int = 1, outsize: int = 1) -> nn.Module:
         nn.Linear(64, outsize),
     )
 
-def train_demo(cfg: DemoConfig) -> Dict[str, Optional[Dict[str, float]]]:
+def train_demo(cfg: DemoConfig) -> dict[str, Optional[dict[str, float]]]:
     torch.manual_seed(cfg.seed)
     device = torch.device(cfg.device)
     data = _make_data(cfg.n, device=device)
@@ -109,7 +108,7 @@ def train_demo(cfg: DemoConfig) -> Dict[str, Optional[Dict[str, float]]]:
             "final_violation": float(nm_final_violation),
         }
 
-    except Exception as e:  # pragma: no cover - optional dependency path
+    except Exception:  # pragma: no cover - optional dependency path
         # Keep this very lightweight: if Neuromancer isn't available, still succeed.
         results["neuromancer"] = None
 

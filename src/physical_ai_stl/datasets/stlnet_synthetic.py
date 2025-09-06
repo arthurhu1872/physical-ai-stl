@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from typing import Tuple
-import numpy as np
 
+import numpy as np
 class SyntheticSTLNetDataset:
     """Generate a bounded sinusoidal time-series for STLnet-style demos.
 
@@ -20,7 +20,7 @@ class SyntheticSTLNetDataset:
     def __len__(self) -> int:
         return self.data.shape[0]
 
-    def __getitem__(self, idx: int) -> Tuple[float, float]:
+    def __getitem__(self, idx: int) -> tuple[float, float]:
         t, v = self.data[idx]
         return float(t), float(v)
 

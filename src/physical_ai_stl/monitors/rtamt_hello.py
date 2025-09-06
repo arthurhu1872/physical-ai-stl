@@ -1,11 +1,10 @@
 """Tiny RTAMT 'hello world' used by tests as a smoke-check."""
 from __future__ import annotations
-
 def stl_hello_offline() -> float:
     # Import inside the function to allow test to skip cleanly when missing.
     try:
         import rtamt  # type: ignore
-    except Exception as e:  # pragma: no cover
+    except Exception:  # pragma: no cover
         raise ImportError("rtamt not installed") from e
 
     spec = rtamt.StlDiscreteTimeSpecification()
@@ -19,12 +18,12 @@ def stl_hello_offline() -> float:
     try:
         rob_val = float(rob_val)
     except Exception:
-        if isinstance(rob_val, (list, tuple)):
+        if isinstance(rob_val, list | tuple):
             if not rob_val:
                 rob_val = 0.0
             else:
                 first = rob_val[0]
-                if isinstance(first, (list, tuple)):
+                if isinstance(first, list | tuple):
                     rob_val = first[1] if len(first) > 1 else first[0]
                 else:
                     rob_val = first

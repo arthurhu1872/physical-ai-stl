@@ -1,6 +1,5 @@
 """Minimal SpaTiaL (spatial-spec) integration test."""
 from __future__ import annotations
-
 def spatial_spec_version() -> str:
     """Return the installed ''spatial_spec'' package version.
 
@@ -11,7 +10,7 @@ def spatial_spec_version() -> str:
     """
     try:
         import spatial_spec  # type: ignore
-    except Exception as e:  # pragma: no cover
+    except Exception:  # pragma: no cover
         raise ImportError("spatial-spec not installed") from e
     return getattr(spatial_spec, "__version__", "unknown")
 

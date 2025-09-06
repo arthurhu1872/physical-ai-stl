@@ -5,16 +5,15 @@ import argparse
 import csv
 import os
 
-import torch
 from torch import nn, optim
 from tqdm import trange
+import torch
 
 from physical_ai_stl.models.mlp import MLP
-from physical_ai_stl.training.grids import grid1d
-from physical_ai_stl.physics.diffusion1d import pde_residual, boundary_loss
 from physical_ai_stl.monitoring.stl_soft import pred_leq, always, STLPenalty
+from physical_ai_stl.physics.diffusion1d import pde_residual, boundary_loss
+from physical_ai_stl.training.grids import grid1d
 from physical_ai_stl.utils.seed import seed_everything
-
 def train_once(stl_weight: float, epochs: int = 100, seed: int = 0) -> float:
     seed_everything(seed)
     device = "cpu"
