@@ -1,58 +1,135 @@
-"""Fast, robust smoke tests for the Synthetic STLnet demo dataset.
+"""Tests for SyntheticSTLNetDataset aligned with STL monitoring use-cases.
 
-These tests preserve the original intent (length, types, bounds, non-NaN) while
-being slightly more permissive (accept any real-number scalar, excluding bool)
-and adding a minimal out-of-range & zero-length check. They are intentionally
-tiny and O(1) per dataset (spot-check first/last only) to stay fast.
+This file is designed to be **tiny, deterministic, and CI-friendly** while
+validating properties that matter for Signal Temporal Logic (STL) monitoring
+and physical-AI demos:
+
+  * Normalized, monotonic, evenly spaced time base t ∈ [0, 1].
+  * Clean reference signal when noise=0.0: v(t) = 0.5 (sin(2πt) + 1).
+  * Standard sequence semantics (negative indexing; IndexError on overflow).
+  * Zero-length behavior (len==0; any access raises IndexError).
+
+Optionally (if RTAMT is installed), we also evaluate two tiny STL specs against
+the dataset to ensure it can be consumed by an STL monitor out of the box:
+  * eventually (u > 0.9)        — should be satisfied on the clean sinusoid
+  * always    (u <= 1.0)        — exactly satisfied at the peak (robustness ≥ 0)
+
+These checks stay **O(1)** per dataset (probe boundaries and a couple interior
+points only) and depend only on the stdlib (plus pytest for skipping).
 """
-
 from __future__ import annotations
 
 import math
-import numbers
+from typing import Iterable, Tuple
 
 import pytest
 
 from physical_ai_stl.datasets import SyntheticSTLNetDataset
 
 
-@pytest.mark.parametrize("length", [1, 5])
-@pytest.mark.parametrize("noise", [0.0, 0.25])
-def test_synthetic_stlnet_dataset_basic(length: int, noise: float) -> None:
-    ds = SyntheticSTLNetDataset(length=length, noise=noise)
-    assert len(ds) == length
-
-    # Spot-check first/last only (keeps work constant regardless of length).
-    for idx in (0, length - 1):
-        item = ds[idx]
-        assert isinstance(item, tuple) and len(item) == 2, "Each item must be a (t, v) pair."
-
-        t, v = item
-
-        # Accept any real scalar (e.g., Python float or numpy floating), but not bool.
-        assert isinstance(t, numbers.Real) and not isinstance(t, bool), f"time should be real, got {type(t)!r}"
-        assert isinstance(v, numbers.Real) and not isinstance(v, bool), f"value should be real, got {type(v)!r}"
-
-        # Ensure downstream code can safely consume plain floats.
-        t = float(t)
-        v = float(v)
-
-        # Guarantees: t is normalized to [0, 1]; v is finite and not NaN.
-        assert 0.0 <= t <= 1.0, f"time t must be in [0, 1], got {t}"
-        assert v == v, "value must not be NaN"
-        assert math.isfinite(v), f"value must be finite, got {v}"
+def _isclose(a: float, b: float, tol: float = 1e-12) -> bool:
+    return math.isclose(a, b, rel_tol=0.0, abs_tol=tol)
 
 
-def test_synthetic_stlnet_dataset_out_of_range_index() -> None:
-    """Indexing exactly at len(ds) should raise IndexError (sequence semantics)."""
-    ds = SyntheticSTLNetDataset(length=5)
+def test_synthetic_stlnet_dataset_semantics() -> None:
+    """Deterministic, constant-time semantic checks over a few lengths."""
+    for n in (1, 5, 17):
+        ds = SyntheticSTLNetDataset(length=n, noise=0.0)
+        assert len(ds) == n
+
+        # Boundary items (negative index must alias the last element).
+        t0, v0 = ds[0]
+        tL, vL = ds[-1]
+        assert (tL, vL) == ds[n - 1]
+
+        # Types and bounds.
+        for t, v in ((t0, v0), (tL, vL)):
+            assert isinstance(t, float) and isinstance(v, float)
+            assert 0.0 <= t <= 1.0
+            assert math.isfinite(v)
+            assert v == v  # not NaN
+
+        # Monotone, evenly spaced time base over [0, 1].
+        assert t0 <= tL
+        if n >= 2:
+            step0 = ds[1][0] - t0
+            stepL = tL - ds[-2][0]
+            expected = 1.0 / (n - 1)
+            assert _isclose(step0, expected)
+            assert _isclose(stepL, expected)
+
+        # Clean sinusoid when noise=0.0.
+        probe_idxs = tuple({0, (1 if n > 1 else 0), n - 1})
+        for i in probe_idxs:
+            ti, vi = ds[i]
+            expected_vi = 0.5 * (math.sin(2.0 * math.pi * ti) + 1.0)
+            assert _isclose(vi, expected_vi), (i, ti, vi, expected_vi)
+
+    # Indexing semantics and zero-length behavior (O(1)).
+    ds = SyntheticSTLNetDataset(length=5, noise=0.0)
+    n = len(ds)
+
+    # Positive overflow.
     with pytest.raises(IndexError):
-        _ = ds[len(ds)]
+        _ = ds[n]
 
-
-def test_synthetic_stlnet_dataset_zero_length() -> None:
-    """Zero-length datasets report length and raise on any index access."""
-    ds = SyntheticSTLNetDataset(length=0)
-    assert len(ds) == 0
+    # Negative boundary and overflow.
+    assert ds[-n] == ds[0]
     with pytest.raises(IndexError):
-        _ = ds[0]
+        _ = ds[-(n + 1)]
+
+    # Zero-length dataset.
+    ds0 = SyntheticSTLNetDataset(length=0, noise=0.0)
+    assert len(ds0) == 0
+    with pytest.raises(IndexError):
+        _ = ds0[0]
+
+
+def test_synthetic_stlnet_dataset_rtamt_optional() -> None:
+    """Optional STL smoke check via RTAMT (skips cleanly if missing)."""
+    try:
+        import rtamt  # type: ignore
+    except Exception:
+        pytest.skip("RTAMT not available; skipping STL monitor check.")
+        return
+
+    ds = SyntheticSTLNetDataset(length=5, noise=0.0)
+    # RTAMT discrete-time expects (time_index, value) pairs.
+    ts: Iterable[Tuple[int, float]] = [(i, ds[i][1]) for i in range(len(ds))]
+    ts_list = list(ts)
+
+    # eventually (u > 0.9)
+    spec_ev = rtamt.StlDiscreteTimeSpecification()
+    spec_ev.declare_var("u", "float")
+    spec_ev.spec = "(eventually (u > 0.9))"
+    spec_ev.parse()
+
+    # always (u <= 1.0)
+    spec_alw = rtamt.StlDiscreteTimeSpecification()
+    spec_alw.declare_var("u", "float")
+    spec_alw.spec = "(always (u <= 1.0))"
+    spec_alw.parse()
+
+    def _robust(x) -> float:
+        """Coerce RTAMT outputs across versions to a float at t0."""
+        try:
+            return float(x)
+        except Exception:
+            if isinstance(x, (list, tuple)):
+                if not x:
+                    return 0.0
+                first = x[0]
+                if isinstance(first, (list, tuple)):
+                    # (t, rob) or similar
+                    return float(first[1] if len(first) > 1 else first[0])
+                return float(first)
+            return float(x)  # may still raise
+
+    # Evaluate robustness at t0 (use the cross-version call signature).
+    rob_ev = _robust(spec_ev.evaluate(["u"], [ts_list]))
+    rob_alw = _robust(spec_alw.evaluate(["u"], [ts_list]))
+
+    # The clean sinusoid reaches 1.0 at t = 0.25 -> eventually (>0.9) holds (robust > 0).
+    assert rob_ev > 0.0
+    # The peak is exactly 1.0 -> always (<= 1.0) has robustness >= 0 (tight at the maximum).
+    assert rob_alw >= 0.0
