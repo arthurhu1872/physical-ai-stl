@@ -81,11 +81,9 @@ def test_synthetic_stlnet_dataset_stl_ready() -> None:
 
         # For one moderate length, verify all steps equal expected (O(n) but tiny).
         if n == 33:
-            ts = np.array([ds[i][0] for i in range(n)])
-            diffs = np.diff(ts)
-            assert np.allclose(
-                diffs, np.full(n - 1, 1.0 / (n - 1)), rtol=0.0, atol=EPS
-            )
+            ts = [ds[i][0] for i in range(n)]
+            diffs_ok = all(_isclose(ts[i+1] - ts[i], 1.0 / (n - 1)) for i in range(n - 1))
+            assert diffs_ok
 
 
 def test_synthetic_stlnet_dataset_sequence_semantics_and_zero_length() -> None:
@@ -121,25 +119,31 @@ def test_synthetic_stlnet_dataset_simple_stl_robustness() -> None:
 
 
 def test_synthetic_stlnet_dataset_reproducible_with_seed() -> None:
-    """Same seed -> identical noisy series; different seed -> typically different."""
+    """Same seed -> identical noisy series; different seed -> typically different.
+    RNG state is saved/restored to avoid cross-test interference.
+    """
     length = 8
     noise = 0.1
 
-    np.random.seed(123)
-    a = SyntheticSTLNetDataset(length=length, noise=noise)
-    a_vals = [a[i] for i in range(length)]
+    state = np.random.get_state()
+    try:
+        np.random.seed(123)
+        a = SyntheticSTLNetDataset(length=length, noise=noise)
+        a_vals = [a[i] for i in range(length)]
 
-    np.random.seed(123)
-    b = SyntheticSTLNetDataset(length=length, noise=noise)
-    b_vals = [b[i] for i in range(length)]
+        np.random.seed(123)
+        b = SyntheticSTLNetDataset(length=length, noise=noise)
+        b_vals = [b[i] for i in range(length)]
 
-    assert a_vals == b_vals  # deterministic under the same seed
+        assert a_vals == b_vals  # deterministic under the same seed
 
-    # Different seed usually changes at least one element; compute but don't assert to avoid flakiness.
-    np.random.seed(456)
-    c = SyntheticSTLNetDataset(length=length, noise=noise)
-    c_vals = [c[i] for i in range(length)]
-    _ = any(x != y for x, y in zip(a_vals, c_vals))
+        # Different seed usually changes at least one element; compute but don't assert to avoid flakiness.
+        np.random.seed(456)
+        c = SyntheticSTLNetDataset(length=length, noise=noise)
+        c_vals = [c[i] for i in range(length)]
+        _ = any(x != y for x, y in zip(a_vals, c_vals))
+    finally:
+        np.random.set_state(state)
 
 
 def test_synthetic_stlnet_dataset_negative_length_raises() -> None:
