@@ -1,13 +1,17 @@
 # Optional heavy dependencies for experiments and monitoring.
-torch
-matplotlib
-tqdm
-pyyaml
-rtamt
-moonlight
-neuromancer
-torchphysics
-physicsnemo
-spatial-spec
-pytorch-lightning
-spatial
+# Install with: pip install -r requirements-extra.txt
+rtamt>=0.3.5
+moonlight>=0.3.1
+spatial-spec>=0.1.1; platform_system != "Windows"
+neuromancer>=1.5.4
+torchphysics>=1.0.4
+pytorch-lightning>=2.0,<3.0
+nvidia-physicsnemo>=1.2 ; platform_system == "Linux"
+matplotlib>=3.7
+tqdm>=4.66
+pyyaml>=6.0
+scipy>=1.10
+
+# --- Optional convenience (comment in if you need them) ---
+# install-jdk>=1.2           # Bootstrap a JDK from Python before using MoonLight (Java 21+)
+# warp-lang>=1.5             # For PhysicsNeMo’s Darcy demo (not required for this repo)
