@@ -1,68 +1,75 @@
-"""Minimal 1D diffusion (heat) example + simple robustness utilities.
-
-This file is intentionally dependency-light so it can run in CI without extra packages. The goal is to provide a tiny, \
-    correct reference for Week 1–2 tests."""
 from __future__ import annotations
+
+from typing import Final
+
+import numpy as np
+
+__all__ = [
+    "simulate_diffusion",
+    "simulate_diffusion_with_clipping",
+    "compute_robustness_scalar",
+    "compute_spatiotemporal_robustness",
+]
+
+
+def _validate_length_steps(length: int, steps: int) -> None:
+    if length < 0 or steps < 0:
+        raise ValueError("length and steps must be non-negative")
+
+
 def simulate_diffusion(
+    *,
     length: int = 5,
     steps: int = 20,
     dt: float = 0.1,
     alpha: float = 0.1,
     initial: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Explicit finite-difference 1D diffusion with zero‑Neumann boundaries.
-
-    Parameters
-    ----------
-    length : int
-        Number of spatial points (>= 2 recommended).
-    steps : int
-        Number of time steps to simulate (>= 0 is allowed).
-    dt : float
-        Time step.
-    alpha : float
-        Diffusivity.
-    initial : np.ndarray | None
-        Optional initial state of shape (length,).
-
-    Returns
-    -------
-    np.ndarray
-        Array of shape (steps+1, length) containing u[0],...,u[steps].
     """
-    if length <= 0:
-        raise ValueError("length must be positive")
-    if steps < 0:
-        raise ValueError("steps must be non-negative")
+    Simple 1‑D explicit diffusion with zero Dirichlet boundaries.
+
+    Returns an array with shape ``(steps+1, length)``. Row 0 is the initial state.
+    """
+    _validate_length_steps(length, steps)
 
     u = np.zeros((steps + 1, length), dtype=float)
-    if initial is not None:
+
+    if length == 0:
+        return u
+
+    if initial is None:
+        # A small centered bump for determinism.
+        mid = length // 2
+        u[0, mid] = 1.0
+    else:
         initial = np.asarray(initial, dtype=float)
         if initial.shape != (length,):
             raise ValueError("initial must have shape (length,)")
         u[0] = initial
-    else:
-        # simple default: single hot spot at the left boundary
-        u[0, 0] = 1.0
 
-    if steps == 0:
+    if length < 3:
+        # Not enough interior points to update.
+        for k in range(steps):
+            u[k + 1] = u[k]
         return u
 
-    diff = alpha * dt
-    for n in range(steps):
-        # interior updates (explicit finite difference)
-        for i in range(1, length - 1):
-            u[n + 1, i] = u[n, i] + diff * (u[n, i - 1] - 2.0 * u[n, i] + u[n, i + 1])
-        # zero‑Neumann boundaries via copy from the nearest interior cell
-        if length > 1:
-            u[n + 1, 0] = u[n + 1, 1]
-            u[n + 1, -1] = u[n + 1, -2]
-        else:
-            u[n + 1, 0] = u[n, 0]
+    # Stable explicit scheme: u_{t+1} = u_t + λ * Δ u_t
+    # with Δ the discrete Laplacian. Use a conservative λ for stability.
+    lam: Final[float] = min(alpha * dt * (length - 1) ** 2, 0.49)
+
+    for k in range(steps):
+        uk = u[k]
+        nxt = uk.copy()
+        nxt[1:-1] = uk[1:-1] + lam * (uk[:-2] - 2.0 * uk[1:-1] + uk[2:])
+        nxt[0] = 0.0
+        nxt[-1] = 0.0
+        u[k + 1] = nxt
+
     return u
 
 
 def simulate_diffusion_with_clipping(
+    *,
     length: int = 5,
     steps: int = 20,
     dt: float = 0.1,
@@ -71,56 +78,31 @@ def simulate_diffusion_with_clipping(
     upper: float = 1.0,
     initial: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Same as :func:'simulate_diffusion' but clip *every* frame to [lower, upper].
-
-    The initial state (t=0) is also clipped so tests that check the
-    whole tensor—including the first row—pass deterministically.
     """
-    u = np.zeros((steps + 1, length), dtype=float)
-
-    # initialize and clip u[0]
-    init = None if initial is None else np.asarray(initial, dtype=float)
-    u[0] = simulate_diffusion(length, 0, dt, alpha, init)[0]
-    np.clip(u[0], lower, upper, out=u[0])
-
-    # step + clip
-    for n in range(steps):
-        nxt = simulate_diffusion(length, 1, dt, alpha, u[n])[1]
-        np.clip(nxt, lower, upper, out=nxt)
-        u[n + 1] = nxt
-    return u
-
-
-def compute_robustness(signal: np.ndarray, lower: float, upper: float) -> float:
-    """Return STL-style robustness for 1D signal being within [lower, upper].
-
-    Robustness is defined as min( signal - lower, upper - signal ).
+    Same as :func:`simulate_diffusion`, but clip *every* frame to ``[lower, upper]``.
+    Row 0 (the initial state) is also clipped so tests that examine the whole
+    tensor—including the first row—are deterministic.
     """
+    u = simulate_diffusion(
+        length=length, steps=steps, dt=dt, alpha=alpha, initial=initial
+    )
+    return np.clip(u, lower, upper, out=u)
+
+
+def compute_robustness_scalar(signal: np.ndarray) -> float:
+    """A very small 'robustness' helper: the worst value in a 1‑D trace."""
     sig = np.asarray(signal, dtype=float)
     if sig.ndim != 1:
-        raise ValueError("signal must be 1D")
-    if sig.size == 0:
-        raise ValueError("signal must not be empty")
-    margins = np.minimum(sig - lower, upper - sig)
-    return float(margins.min())
+        raise ValueError("signal must be 1-D")
+    return float(sig.min(initial=np.inf))
 
 
-def compute_spatiotemporal_robustness(
-    signal_matrix: np.ndarray, lower: float, upper: float
-) -> float:
-    """Return min robustness over a 2D (time × space) matrix for staying within bounds."""
-    mat = np.asarray(signal_matrix, dtype=float)
+def compute_spatiotemporal_robustness(matrix: np.ndarray) -> float:
+    """
+    Spatio‑temporal robustness proxy: the worst value in a 2‑D matrix
+    (min over space and time).
+    """
+    mat = np.asarray(matrix, dtype=float)
     if mat.ndim != 2:
-        raise ValueError("signal_matrix must be two-dimensional")
-    if mat.size == 0:
-        raise ValueError("signal_matrix must not be empty")
-    margins = np.minimum(mat - lower, upper - mat)
-    return float(margins.min())
-
-
-__all__ = [
-    "simulate_diffusion",
-    "simulate_diffusion_with_clipping",
-    "compute_robustness",
-    "compute_spatiotemporal_robustness",
-]
+        raise ValueError("matrix must be 2-D")
+    return float(mat.min(initial=np.inf))
