@@ -1,23 +1,37 @@
-"""Minimal synthetic dataset inspired by STLnet air quality examples."""
-
 from __future__ import annotations
-class SyntheticSTLNetDataset:
-    """Generate a bounded sinusoidal time-series for STLnet-style demos.
 
-    Each item is a '(time, value)' pair where 'time' is in '[0, 1]' and
-    'value' lies roughly in '[0, 1]' with optional Gaussian noise.
+import numpy as np
+
+
+class SyntheticSTLNetDataset:
+    """
+    Lightweight synthetic 1‑D signal used by tests.
+
+    Attributes
+    ----------
+    t : np.ndarray
+        Shape (length,) time stamps in [0, 1].
+    y : np.ndarray
+        Shape (length,) signal values.
     """
 
     def __init__(self, length: int = 100, noise: float = 0.05) -> None:
-        t = np.linspace(0.0, 1.0, num=length, dtype=float)
-        clean = 0.5 * (np.sin(2 * np.pi * t) + 1.0)
-        self.data = np.stack([t, clean + noise * np.random.randn(length)], axis=1)
+        if length < 0:
+            raise ValueError("length must be non-negative")
+
+        self.t = np.linspace(0.0, 1.0, num=length, dtype=float)
+        # Smooth deterministic base signal (bounded in [-1.5, 1.5]).
+        base = np.sin(2.0 * np.pi * self.t) + 0.5 * np.cos(4.0 * np.pi * self.t)
+
+        if noise:
+            # Use legacy global RNG so tests can use np.random.get_state()
+            # to make construction deterministic across calls.
+            self.y = base + noise * np.random.randn(length).astype(float)
+        else:
+            self.y = base
 
     def __len__(self) -> int:
-        return self.data.shape[0]
+        return self.t.shape[0]
 
     def __getitem__(self, idx: int) -> tuple[float, float]:
-        t, v = self.data[idx]
-        return float(t), float(v)
-
-__all__ = ["SyntheticSTLNetDataset"]
+        return float(self.t[idx]), float(self.y[idx])
