@@ -1,7 +1,7 @@
 # Optional heavy dependencies for experiments and monitoring.
 # Install with: pip install -r requirements-extra.txt
 rtamt>=0.3.5
-moonlight>=0.0.9
+moonlight>=0.3.1
 spatial-spec>=0.1.1; platform_system != "Windows"
 neuromancer>=1.5.4
 torchphysics>=1.0.4
