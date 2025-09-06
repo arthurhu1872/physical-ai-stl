@@ -1,5 +1,5 @@
 # Core dependencies for running tests. Optional packages live in 'requirements-extra.txt' and 'pyproject.toml' extras.
 numpy>=1.26,<2.0
-torch>=2.4,<3.0
-pytest>=8,<9
-ruff>=0.12
+torch>=2.6,<3.0
+pytest>=8.4,<9.0
+ruff>=0.12,<0.13
