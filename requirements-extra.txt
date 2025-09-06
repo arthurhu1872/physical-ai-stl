@@ -5,13 +5,17 @@ moonlight>=0.3.1
 spatial-spec>=0.1.1; platform_system != "Windows"
 neuromancer>=1.5.4
 torchphysics>=1.0.4
-pytorch-lightning>=2.0,<3.0
-nvidia-physicsnemo>=1.2; platform_system == "Linux"
-matplotlib>=3.8
-tqdm>=4.66
-pyyaml>=6.0.2
-scipy>=1.11
+pytorch-lightning>=2.5.5,<3.0
+nvidia-physicsnemo>=1.2.0; platform_system == "Linux"
 
-# --- Optional convenience (comment in if you need them) ---
-# install-jdk>=1.2           # Bootstrap a JDK from Python before using MoonLight (Java 21+)
-# warp-lang>=1.5             # For PhysicsNeMo’s Darcy demo (not required for this repo)
+matplotlib>=3.10
+tqdm>=4.67.1
+pyyaml>=6.0.2
+
+# SciPy: newest (1.16.x) needs Python >=3.11. Keep Py3.10 working with a lower cap.
+scipy>=1.16; python_version >= "3.11"
+scipy>=1.11,<1.16; python_version < "3.11"
+
+# --- Optional convenience (uncomment if needed) ---
+# install-jdk>=1.1.0       # Bootstrap a JDK before using MoonLight (Java 21+ works)
+# warp-lang>=1.9           # For certain PhysicsNeMo demos; GPU optional
