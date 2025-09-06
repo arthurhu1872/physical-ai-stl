@@ -8,14 +8,15 @@ torchphysics>=1.0.4
 pytorch-lightning>=2.5.5,<3.0
 nvidia-physicsnemo>=1.2.0; platform_system == "Linux"
 
-matplotlib>=3.10
+matplotlib>=3.10,<4
 tqdm>=4.67.1
 pyyaml>=6.0.2
 
 # SciPy: newest (1.16.x) needs Python >=3.11. Keep Py3.10 working with a lower cap.
 scipy>=1.16; python_version >= "3.11"
-scipy>=1.11,<1.16; python_version < "3.11"
+scipy>=1.15,<1.16; python_version < "3.11"
 
 # --- Optional convenience (uncomment if needed) ---
 # install-jdk>=1.1.0       # Bootstrap a JDK before using MoonLight (Java 21+ works)
+# jdk4py>=21.0.4.2          # Self-contained JDK for CI where Java isn't present
 # warp-lang>=1.9           # For certain PhysicsNeMo demos; GPU optional
