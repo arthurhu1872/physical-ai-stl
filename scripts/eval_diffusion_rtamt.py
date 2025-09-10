@@ -8,12 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-# Import only lightweight helpers at module import time
 from physical_ai_stl.monitoring.rtamt_monitor import (
     evaluate_series as _rtamt_evaluate_series,
     satisfied as _rtamt_satisfied,
     stl_always_upper_bound as _rtamt_stl_upper,
 )
+
 
 # -----------------------------------------------------------------------------
 # Argument parsing
@@ -38,9 +38,7 @@ class Args:
 
 def build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        description=(
-            "Evaluate STL robustness with RTAMT for a saved diffusion PINN field."
-        ),
+        description="Evaluate STL robustness with RTAMT for a saved diffusion PINN field.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     ap.add_argument(
@@ -278,12 +276,12 @@ def _robustness_fallback(
     if kind == "upper":
         if u_max is None:
             raise SystemExit("[fatal] --u-max required for --spec upper")
-        rob_t = (float(u_max) - s)
+        rob_t = float(u_max) - s
         return float(np.min(rob_t))
     if kind == "lower":
         if u_min is None:
             raise SystemExit("[fatal] --u-min required for --spec lower")
-        rob_t = (s - float(u_min))
+        rob_t = s - float(u_min)
         return float(np.min(rob_t))
     if kind == "range":
         if u_min is None or u_max is None:
