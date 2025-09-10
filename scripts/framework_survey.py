@@ -1,35 +1,36 @@
 #!/usr/bin/env python3
-
 from __future__ import annotations
 
 import argparse
 import importlib
-import importlib.metadata as metadata
 import platform
 import subprocess
 import sys
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
-
+from importlib import metadata as metadata
+from typing import Any
 
 # ------------------------------ spec -----------------------------------------
 
 
 @dataclass(frozen=True)
 class Pkg:
-    name: str                       # Human-friendly name for display
-    pip_names: Tuple[str, ...]      # One or more possible distribution names on PyPI
-    import_name: Optional[str]      # Python import name (may differ from pip name)
-    desc: str                       # One-line description
-    category: str                   # 'framework' | 'stl'
+    name: str                  # Human-friendly name for display
+    pip_names: tuple[str, ...]  # One or more possible distribution names on PyPI
+    import_name: str | None     # Python import name (may differ from pip name)
+    desc: str                   # One-line description
+    category: str               # 'framework' | 'stl'
 
 
-PKGS: List[Pkg] = [
+PKGS: list[Pkg] = [
     Pkg(
         name="Neuromancer",
         pip_names=("neuromancer",),
         import_name="neuromancer",
-        desc="PyTorch-based differentiable programming for physics-informed optimization and control",
+        desc=(
+            "PyTorch-based differentiable programming for physics-informed "
+            "optimization and control"
+        ),
         category="framework",
     ),
     Pkg(
@@ -73,7 +74,7 @@ PKGS: List[Pkg] = [
 # ---------------------------- helpers ----------------------------------------
 
 
-def _dist_version_for_names(names: Tuple[str, ...]) -> Optional[str]:
+def _dist_version_for_names(names: tuple[str, ...]) -> str | None:
     for n in names:
         try:
             return metadata.version(n)
@@ -86,7 +87,7 @@ def _dist_version_for_names(names: Tuple[str, ...]) -> Optional[str]:
     return None
 
 
-def _import_version(import_name: str) -> Optional[str]:
+def _import_version(import_name: str) -> str | None:
     try:
         mod = importlib.import_module(import_name)
     except Exception:
@@ -103,13 +104,12 @@ def _import_version(import_name: str) -> Optional[str]:
     return None
 
 
-def _check_java_version(timeout: float = 3.0) -> Optional[str]:
+def _check_java_version(timeout: float = 3.0) -> str | None:
     try:
         # 'java -version' prints to stderr on many JDKs
         proc = subprocess.run(
             ["java", "-version"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             check=False,
             timeout=timeout,
@@ -124,8 +124,8 @@ def _check_java_version(timeout: float = 3.0) -> Optional[str]:
         return None
 
 
-def _check_torch() -> Dict[str, Any]:
-    info: Dict[str, Any] = {
+def _check_torch() -> dict[str, Any]:
+    info: dict[str, Any] = {
         "installed": False,
         "version": None,
         "cuda_available": None,
@@ -146,8 +146,8 @@ def _check_torch() -> Dict[str, Any]:
     return info
 
 
-def _survey(deep: bool = False) -> Dict[str, Any]:
-    rows: List[Dict[str, Any]] = []
+def _survey(deep: bool = False) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
     for pkg in PKGS:
         dist_version = _dist_version_for_names(pkg.pip_names)
         imp_version = _import_version(pkg.import_name) if (deep and pkg.import_name) else None
@@ -178,7 +178,7 @@ def _survey(deep: bool = False) -> Dict[str, Any]:
             }
         )
 
-    sysinfo: Dict[str, Any] = {
+    sysinfo: dict[str, Any] = {
         "python": sys.version.split()[0],
         "platform": platform.platform(),
         "torch": _check_torch(),
@@ -188,7 +188,7 @@ def _survey(deep: bool = False) -> Dict[str, Any]:
     return {"rows": rows, "sys": sysinfo}
 
 
-def _format_text_table(rows: List[Dict[str, Any]]) -> str:
+def _format_text_table(rows: list[dict[str, Any]]) -> str:
     headers = ["Package", "Installed", "Version", "Import", "PyPI", "Notes"]
     max_widths = [18, 9, 18, 18, 26, 48]
     data = [
@@ -213,7 +213,7 @@ def _format_text_table(rows: List[Dict[str, Any]]) -> str:
     def trunc(s: str, w: int) -> str:
         return s if len(s) <= w else s[: w - 1] + "…"
 
-    def line(cells: List[str]) -> str:
+    def line(cells: list[str]) -> str:
         return "  ".join(trunc(str(cells[i]), col_w[i]).ljust(col_w[i]) for i in range(len(headers)))
 
     out = [line(headers), line(["-" * w for w in col_w])]
@@ -221,9 +221,12 @@ def _format_text_table(rows: List[Dict[str, Any]]) -> str:
     return "\n".join(out)
 
 
-def _format_md_table(rows: List[Dict[str, Any]]) -> str:
+def _format_md_table(rows: list[dict[str, Any]]) -> str:
     headers = ["Package", "Installed", "Version", "Import", "PyPI", "Notes"]
-    md = ["| " + " | ".join(headers) + " |", "| " + " | ".join(["---"] * len(headers)) + " |"]
+    md = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join(["---"] * len(headers)) + " |",
+    ]
     for r in rows:
         md.append(
             "| "
@@ -245,7 +248,7 @@ def _format_md_table(rows: List[Dict[str, Any]]) -> str:
 # ------------------------------ CLI ------------------------------------------
 
 
-def main(argv: Optional[List[str]] = None) -> None:
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(
         description="Summarize available physical‑AI frameworks and STL tooling versions."
     )
@@ -299,7 +302,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         print(f"- Torch: {torch.get('version') or 'not installed'}  ")
         if torch.get("installed"):
             print(
-                f"- CUDA available: {torch.get('cuda_available')} (CUDA {torch.get('cuda_version')})  "
+                f"- CUDA available: {torch.get('cuda_available')}"
+                f" (CUDA {torch.get('cuda_version')})  "
             )
         if args.deep and "java" in sysinfo:
             print(f"- Java: {sysinfo['java']}  ")
@@ -317,7 +321,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         print(f"  Python {sysinfo['python']} on {sysinfo['platform']}")
         if torch.get("installed"):
             print(
-                f"  Torch {torch['version']} | CUDA available: {torch.get('cuda_available')} (CUDA {torch.get('cuda_version')})"
+                f"  Torch {torch['version']} | CUDA available: {torch.get('cuda_available')}"
+                f" (CUDA {torch.get('cuda_version')})"
             )
         else:
             print("  Torch not installed")
