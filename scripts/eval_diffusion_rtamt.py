@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import json
+import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-import json
 from pathlib import Path
-import sys
 from typing import Any
 
 # Import only lightweight helpers at module import time
@@ -19,18 +19,17 @@ from physical_ai_stl.monitoring.rtamt_monitor import (
 # Argument parsing
 # -----------------------------------------------------------------------------
 
-
 @dataclass
 class Args:
     ckpt: str
     var: str
-    semantics: str  # 'dense' or 'discrete'
+    semantics: str          # 'dense' or 'discrete'
     dt: float | None
-    agg: str  # spatial reducer
-    p: float  # lp norm (for --agg lp)
-    q: float  # quantile (for --agg quantile)
-    temp: float  # temperature (for --agg softmax)
-    spec: str  # 'upper' | 'lower' | 'range'
+    agg: str                # spatial reducer
+    p: float                # lp norm (for --agg lp)
+    q: float                # quantile (for --agg quantile)
+    temp: float             # temperature (for --agg softmax)
+    spec: str               # 'upper' | 'lower' | 'range'
     u_max: float | None
     u_min: float | None
     json_out: str | None
@@ -39,7 +38,9 @@ class Args:
 
 def build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        description=("Evaluate STL robustness with RTAMT for a saved diffusion PINN field."),
+        description=(
+            "Evaluate STL robustness with RTAMT for a saved diffusion PINN field."
+        ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     ap.add_argument(
@@ -122,7 +123,6 @@ def build_argparser() -> argparse.ArgumentParser:
 # -----------------------------------------------------------------------------
 # Core helpers
 # -----------------------------------------------------------------------------
-
 
 def _load_ckpt(path: Path) -> Mapping[str, Any]:
     try:
@@ -272,7 +272,6 @@ def _robustness_fallback(
     u_max: float | None,
 ) -> float:
     import numpy as np
-
     s = np.asarray(list(series), dtype=float)
     if s.ndim != 1 or s.size == 0:
         return float("nan")
@@ -323,7 +322,6 @@ def _evaluate(
 # -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
-
 
 def main() -> None:
     args = Args(**vars(build_argparser().parse_args()))
