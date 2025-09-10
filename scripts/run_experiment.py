@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, Iterable, Iterator, List, Tuple
 import argparse
 import importlib
-import io
 import os
 import pkgutil
 import sys
 import time
 from copy import deepcopy
+from dataclasses import dataclass
+from typing import Any
+from collections.abc import Iterable, Iterator
 
 # ---------------------------------------------------------------------------
 # YAML loader (with a crisp error if pyyaml isn't installed)
 # ---------------------------------------------------------------------------
+
 
 def _require_yaml():
     try:
@@ -29,31 +29,38 @@ def _require_yaml():
         ) from e
     return yaml
 
+
 def _read_text(path: str) -> str:
     path = os.path.expanduser(os.path.expandvars(path))
-    with open(path, mode="r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:  # UP015: no redundant mode="r"
         return f.read()
 
-def load_yaml(path: str) -> Dict[str, Any]:
+
+def load_yaml(path: str) -> dict[str, Any]:
     yaml = _require_yaml()
     raw = _read_text(path)
+
     # Expand env vars *inside* scalar strings post-parse to avoid YAML surprises
     data = yaml.safe_load(raw) or {}
-    def _expand(obj):
+
+    def _expand(obj: Any) -> Any:
         if isinstance(obj, str):
             return os.path.expandvars(os.path.expanduser(obj))
-        elif isinstance(obj, dict):
-            return {k: _expand(v) for k, v in obj.items()}
-        elif isinstance(obj, (list, tuple)):
+        if isinstance(obj, list | tuple):  # UP038: union in isinstance
             return type(obj)(_expand(v) for v in obj)
+        if isinstance(obj, dict):
+            return {k: _expand(v) for k, v in obj.items()}
         return obj
+
     return _expand(data)
+
 
 # ---------------------------------------------------------------------------
 # Small, dependency-free experiment registry using module discovery
 # ---------------------------------------------------------------------------
 
-def _ensure_src_on_path():
+
+def _ensure_src_on_path() -> None:
     try:
         import physical_ai_stl  # noqa: F401
         return
@@ -65,13 +72,15 @@ def _ensure_src_on_path():
     if os.path.isdir(src) and src not in sys.path:
         sys.path.insert(0, src)
 
+
 @dataclass(frozen=True)
 class ExpInfo:
-    name: str             # e.g. 'diffusion1d'
-    module: str           # 'physical_ai_stl.experiments.diffusion1d'
-    run_candidates: Tuple[str, ...]  # ordered possible run function names
+    name: str  # e.g. 'diffusion1d'
+    module: str  # 'physical_ai_stl.experiments.diffusion1d'
+    run_candidates: tuple[str, ...]  # ordered possible run function names
 
-def discover_experiments() -> List[ExpInfo]:
+
+def discover_experiments() -> list[ExpInfo]:
     _ensure_src_on_path()
     try:
         pkg = importlib.import_module("physical_ai_stl.experiments")
@@ -83,16 +92,16 @@ def discover_experiments() -> List[ExpInfo]:
             f"Original error: {e}"
         ) from e
 
-    infos: List[ExpInfo] = []
+    infos: list[ExpInfo] = []
     for modinfo in pkgutil.iter_modules(pkg.__path__):  # type: ignore[attr-defined]
         name = modinfo.name
-        # Only consider python modules (ignore packages for now)
-        module = f"physical_ai_stl.experiments.{name}"
+        module = f"physical_ai_stl.experiments.{name}"  # consider only modules for now
         # Conventional run function order: run_<name>, run
         candidates = (f"run_{name}", "run")
         infos.append(ExpInfo(name=name, module=module, run_candidates=candidates))
     # Stable alphabetical order for --list
     return sorted(infos, key=lambda i: i.name)
+
 
 def get_runner(exp_name: str):
     infos = {i.name: i for i in discover_experiments()}
@@ -104,59 +113,67 @@ def get_runner(exp_name: str):
     for fn in info.run_candidates:
         if hasattr(mod, fn):
             return getattr(mod, fn)
-    raise SystemExit(f"No runnable function found in {info.module}. Tried: {info.run_candidates}")
+    raise SystemExit(
+        f"No runnable function found in {info.module}. Tried: {info.run_candidates}"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Config utilities: dotted overrides and tiny sweep helper
 # ---------------------------------------------------------------------------
 
-def _parse_override(s: str) -> Tuple[List[str], Any]:
+
+def _parse_override(s: str) -> tuple[list[str], Any]:
     if "=" not in s:
         raise argparse.ArgumentTypeError("--set expects KEY=VALUE (use quotes for lists)")
     key, val = s.split("=", 1)
     key_parts = [k for k in key.split(".") if k]
     if not key_parts:
-        raise argparse.ArgumentTypeError("Invalid key in override: {s}")
+        raise argparse.ArgumentTypeError(f"Invalid key in override: {s}")
     # Reuse YAML parser to get numbers/bools/lists right
     yaml = _require_yaml()
     value = yaml.safe_load(val)
     return key_parts, value
 
-def _set_nested(d: Dict[str, Any], keys: List[str], value: Any) -> None:
+
+def _set_nested(d: dict[str, Any], keys: list[str], value: Any) -> None:
     cur = d
     for k in keys[:-1]:
         if k not in cur or not isinstance(cur[k], dict):
             cur[k] = {}
-        cur = cur[k]
+        cur = cur[k]  # type: ignore[assignment]
     cur[keys[-1]] = value
 
-def apply_overrides(cfg: Dict[str, Any], overrides: Iterable[str]) -> Dict[str, Any]:
+
+def apply_overrides(cfg: dict[str, Any], overrides: Iterable[str]) -> dict[str, Any]:
     cfg = deepcopy(cfg)
     for o in overrides:
         keys, value = _parse_override(o)
         _set_nested(cfg, keys, value)
     return cfg
 
-def iter_sweep_cfgs(base: Dict[str, Any]) -> Iterator[Tuple[str, Dict[str, Any]]]:
+
+def iter_sweep_cfgs(base: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
     sweep = base.get("sweep")
     if not sweep:
         yield "", base
         return
 
     # Normalize: keys (dotted) -> lists of values
-    items: List[Tuple[List[str], List[Any]]] = []
+    items: list[tuple[list[str], list[Any]]] = []
     for k, v in sweep.items():
         keys = [p for p in str(k).split(".") if p]
         if not isinstance(v, list) or len(v) == 0:
-            raise SystemExit("Each sweep entry must be a non-empty list: {k}")
+            raise SystemExit(f"Each sweep entry must be a non-empty list: {k}")
         items.append((keys, v))
 
     # Cartesian product
     from itertools import product
+
     for combo in product(*[vals for _, vals in items]):
         cfg = deepcopy(base)
-        parts = []
-        for (keys, _), v in zip(items, combo):
+        parts: list[str] = []
+        for (keys, _), v in zip(items, combo, strict=True):
             _set_nested(cfg, keys, v)
             # Build a compact, file-system-safe suffix
             sval = repr(v).replace(" ", "")
@@ -164,35 +181,41 @@ def iter_sweep_cfgs(base: Dict[str, Any]) -> Iterator[Tuple[str, Dict[str, Any]]
             parts.append(f"{'.'.join(keys)}={sval}")
         yield "__".join(parts), cfg
 
+
 # ---------------------------------------------------------------------------
 # Seeding and run directory handling (lightweight / optional)
 # ---------------------------------------------------------------------------
+
 
 def try_set_seed(seed: int | None) -> None:
     if seed is None:
         return
     try:
-        import random, os
+        import random
+
         random.seed(seed)
         os.environ["PYTHONHASHSEED"] = str(seed)
     except Exception:
         pass
     try:
         import numpy as np  # type: ignore
+
         np.random.seed(seed)
     except Exception:
         pass
     try:
         import torch  # type: ignore
+
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)  # no-op if CUDA absent
         # Optional deterministic flags if available
-        if hasattr(torch, 'use_deterministic_algorithms'):
+        if hasattr(torch, "use_deterministic_algorithms"):
             torch.use_deterministic_algorithms(False)  # safer default for speed
     except Exception:
         pass
 
-def make_run_dir(cfg: Dict[str, Any]) -> str:
+
+def make_run_dir(cfg: dict[str, Any]) -> str:
     io_cfg = cfg.setdefault("io", {})
     results_dir = str(io_cfg.get("results_dir", "results"))
     os.makedirs(results_dir, exist_ok=True)
@@ -204,15 +227,18 @@ def make_run_dir(cfg: Dict[str, Any]) -> str:
     io_cfg["run_dir"] = run_dir
     return run_dir
 
-def dump_effective_config(run_dir: str, cfg: Dict[str, Any]) -> None:
+
+def dump_effective_config(run_dir: str, cfg: dict[str, Any]) -> None:
     yaml = _require_yaml()
     path = os.path.join(run_dir, "config.effective.yaml")
     with open(path, "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
 
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def build_argparser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -220,12 +246,30 @@ def build_argparser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--config", "-c", required=False, help="Path to YAML config.")
-    p.add_argument("--list", action="store_true", help="List available experiments and exit.")
-    p.add_argument("--set", dest="overrides", action="append", default=[], help="Override config with KEY=VALUE (YAML values). Can be repeated.")
-    p.add_argument("--dry-run", action="store_true", help="Validate config and print the resolved experiment without running.")
+    p.add_argument(
+        "--list",
+        action="store_true",
+        help="List available experiments and exit.",
+    )
+    p.add_argument(
+        "--set",
+        dest="overrides",
+        action="append",
+        default=[],
+        help=(
+            "Override config with KEY=VALUE (YAML values). "
+            "Can be repeated."
+        ),
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate config and print the resolved experiment without running.",
+    )
     return p
 
-def main(argv: List[str] | None = None) -> None:
+
+def main(argv: list[str] | None = None) -> None:
     args = build_argparser().parse_args(argv)
 
     if args.list:
@@ -264,7 +308,8 @@ def main(argv: List[str] | None = None) -> None:
 
         runner = get_runner(exp)
         if args.dry_run:
-            print(f"[DRY‑RUN] Would run: {exp} with tag='{subcfg.get('tag','')}' in {run_dir}")
+            tag = subcfg.get("tag", "")
+            print(f"[DRY‑RUN] Would run: {exp} with tag='{tag}' in {run_dir}")
             continue
 
         out = runner(subcfg)  # type: ignore[misc]
@@ -273,6 +318,7 @@ def main(argv: List[str] | None = None) -> None:
 
     if args.dry_run and not ran_any:
         print("[DRY‑RUN] No runs were scheduled (empty sweep?).")
+
 
 if __name__ == "__main__":  # pragma: no cover
     main()
