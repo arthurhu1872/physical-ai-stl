@@ -1,15 +1,14 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable, List, Tuple, Dict, Optional
-from pathlib import Path
 import argparse
 import csv
 import math
-import os
 import re
 import statistics
+import sys
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -17,18 +16,19 @@ import matplotlib.pyplot as plt
 
 # ------------------------------ Utilities ---------------------------------
 
+
 @dataclass
 class Series:
     label: str
-    xs: List[float]
-    ys: List[float]
+    xs: list[float]
+    ys: list[float]
     # Optional uncertainty for shaded band
-    y_lo: Optional[List[float]] = None
-    y_hi: Optional[List[float]] = None
+    y_lo: list[float] | None = None
+    y_hi: list[float] | None = None
 
 
 # Keep Matplotlib's default color‑cycle (color‑blind friendly in modern MPL)
-_DEFAULT_PROP_CYCLE = plt.rcParams['axes.prop_cycle']
+_DEFAULT_PROP_CYCLE = plt.rcParams["axes.prop_cycle"]
 
 # Likely column names in your CSVs
 _AUTO_XCANDIDATES = ("lambda", "lam", "stl_weight", "weight", "alpha", "x")
@@ -38,15 +38,16 @@ _UPPER_CANDIDATES = ("y_hi", "hi", "upper", "ymax", "ci_hi", "ub")
 _STDLIKE_CANDIDATES = ("std", "stdev", "stderr", "sem")
 
 
-def _as_float(s: str) -> Optional[float]:
+def _as_float(s: str) -> float | None:
     try:
         return float(s)
     except Exception:
         return None
 
 
-def _sniff_and_open(path: Path) -> Tuple[csv.Dialect, List[List[str]]]:
-    with open(path, "r", newline="") as f:
+def _sniff_and_open(path: Path) -> tuple[csv.Dialect, list[list[str]]]:
+    # Mode "r" is default; avoid unnecessary argument (ruff UP015).
+    with open(path, newline="") as f:
         sample = f.read(4096)
         f.seek(0)
         try:
@@ -67,7 +68,7 @@ def _sanitize_label_from_filename(p: Path) -> str:
     return name or p.stem
 
 
-def _infer_col_index(header: List[str], candidates: Iterable[str]) -> Optional[int]:
+def _infer_col_index(header: list[str], candidates: Iterable[str]) -> int | None:
     low = [h.strip().lower() for h in header]
     for cand in candidates:
         if cand in low:
@@ -75,15 +76,15 @@ def _infer_col_index(header: List[str], candidates: Iterable[str]) -> Optional[i
     return None
 
 
-def _rows_to_series(rows: List[List[str]], file_label: str, args) -> Series:
+def _rows_to_series(rows: list[list[str]], file_label: str, args) -> Series:
     # Drop comment lines and empties
-    clean: List[List[str]] = [r for r in rows if r and not str(r[0]).lstrip().startswith("#")]
+    clean: list[list[str]] = [r for r in rows if r and not str(r[0]).lstrip().startswith("#")]
     if not clean:
         raise ValueError("CSV appears empty after removing comments.")
 
     header_present = any(not _as_float(c) for c in clean[0])
-    header: List[str]
-    data_rows: List[List[str]]
+    header: list[str]
+    data_rows: list[list[str]]
 
     if header_present:
         header = [c.strip() for c in clean[0]]
@@ -116,10 +117,10 @@ def _rows_to_series(rows: List[List[str]], file_label: str, args) -> Series:
     hi_idx = _infer_col_index(header, _UPPER_CANDIDATES) if header else None
     std_idx = _infer_col_index(header, _STDLIKE_CANDIDATES) if header else None
 
-    xs: List[float] = []
-    ys: List[float] = []
-    y_lo: List[float] = []
-    y_hi: List[float] = []
+    xs: list[float] = []
+    ys: list[float] = []
+    y_lo_vals: list[float] = []
+    y_hi_vals: list[float] = []
 
     for r in data_rows:
         if not r or all(c.strip() == "" for c in r):
@@ -139,26 +140,32 @@ def _rows_to_series(rows: List[List[str]], file_label: str, args) -> Series:
             hi_val = _as_float(r[hi_idx])
 
         if lo_val is not None and hi_val is not None:
-            y_lo.append(lo_val)
-            y_hi.append(hi_val)
+            y_lo_vals.append(lo_val)
+            y_hi_vals.append(hi_val)
         elif std_idx is not None and std_idx < len(r) and _as_float(r[std_idx]) is not None:
             std = float(r[std_idx])
-            mult = args.err_mult if args.err_mult is not None else (1.96 if header and "se" in header[std_idx].lower() else 1.0)
-            y_lo.append(yv - mult * std)
-            y_hi.append(yv + mult * std)
+            # Default multiplier: 1.0 for std; 1.96 for sem/stderr if header suggests "se".
+            mult = (
+                args.err_mult
+                if args.err_mult is not None
+                else (1.96 if header and "se" in header[std_idx].lower() else 1.0)
+            )
+            y_lo_vals.append(yv - mult * std)
+            y_hi_vals.append(yv + mult * std)
 
     # Sort by x
     order = sorted(range(len(xs)), key=lambda i: xs[i])
     xs = [xs[i] for i in order]
     ys = [ys[i] for i in order]
-    y_lo = [y_lo[i] for i in range(len(y_lo))] if y_lo else None
-    y_hi = [y_hi[i] for i in range(len(y_hi))] if y_hi else None
 
-    return Series(label=file_label, xs=xs, ys=ys, y_lo=y_lo, y_hi=y_hi)
+    y_lo_ret: list[float] | None = y_lo_vals if y_lo_vals else None
+    y_hi_ret: list[float] | None = y_hi_vals if y_hi_vals else None
+
+    return Series(label=file_label, xs=xs, ys=ys, y_lo=y_lo_ret, y_hi=y_hi_ret)
 
 
-def _iter_input_files(patterns: List[str]) -> List[Path]:
-    files: List[Path] = []
+def _iter_input_files(patterns: list[str]) -> list[Path]:
+    files: list[Path] = []
     for patt in patterns:
         p = Path(patt).expanduser()
         if p.is_dir():
@@ -170,25 +177,25 @@ def _iter_input_files(patterns: List[str]) -> List[Path]:
             for cand in base.glob(p.name):
                 if cand.is_file():
                     files.append(cand)
-    # de‑dupe
-    uniq: Dict[str, Path] = {}
+    # De‑dupe
+    uniq: dict[str, Path] = {}
     for f in files:
         uniq[str(f.resolve())] = f
     return [uniq[k] for k in sorted(uniq.keys())]
 
 
-def _round_if_requested(xs: List[float], decimals: Optional[int]) -> List[float]:
+def _round_if_requested(xs: list[float], decimals: int | None) -> list[float]:
     if decimals is None:
         return xs
     return [round(x, decimals) for x in xs]
 
 
-def _aggregate(series_list: List[Series], x_decimals: Optional[int]) -> Series:
+def _aggregate(series_list: list[Series], x_decimals: int | None) -> Series:
     if not series_list:
         raise ValueError("No series to aggregate.")
 
     # Build map x -> list[ys]
-    buckets: Dict[float, List[float]] = {}
+    buckets: dict[float, list[float]] = {}
     for s in series_list:
         xr = _round_if_requested(s.xs, x_decimals)
         if len(xr) != len(s.ys):
@@ -197,9 +204,9 @@ def _aggregate(series_list: List[Series], x_decimals: Optional[int]) -> Series:
             buckets.setdefault(x, []).append(y)
 
     xs_sorted = sorted(buckets.keys())
-    means: List[float] = []
-    lo: List[float] = []
-    hi: List[float] = []
+    means: list[float] = []
+    lo: list[float] = []
+    hi: list[float] = []
     for x in xs_sorted:
         vals = buckets[x]
         m = statistics.fmean(vals)
@@ -218,26 +225,34 @@ def _aggregate(series_list: List[Series], x_decimals: Optional[int]) -> Series:
 
 # ------------------------------ Plotting ----------------------------------
 
+
 def _apply_style(args) -> None:
-    matplotlib.rcParams.update({
-        "figure.dpi": args.dpi,
-        "savefig.dpi": args.dpi,
-        "axes.grid": True,
-        "grid.linestyle": "--",
-        "grid.alpha": 0.35,
-        "axes.titlesize": 12,
-        "axes.labelsize": 11,
-        "xtick.labelsize": 10,
-        "ytick.labelsize": 10,
-        "legend.fontsize": 10,
-        "axes.prop_cycle": _DEFAULT_PROP_CYCLE,
-        "mathtext.default": "regular",
-    })
+    matplotlib.rcParams.update(
+        {
+            "figure.dpi": args.dpi,
+            "savefig.dpi": args.dpi,
+            "axes.grid": True,
+            "grid.linestyle": "--",
+            "grid.alpha": 0.35,
+            "axes.titlesize": 12,
+            "axes.labelsize": 11,
+            "xtick.labelsize": 10,
+            "ytick.labelsize": 10,
+            "legend.fontsize": 10,
+            "axes.prop_cycle": _DEFAULT_PROP_CYCLE,
+            "mathtext.default": "regular",
+        }
+    )
 
 
-def _plot(ax, s: Series, draw_band: bool = True, marker: str = "o"):
-    line, = ax.plot(s.xs, s.ys, marker=marker, linewidth=2.0, markersize=4, label=s.label)
-    if draw_band and s.y_lo is not None and s.y_hi is not None and len(s.y_lo) == len(s.ys) == len(s.y_hi):
+def _plot(ax, s: Series, draw_band: bool = True, marker: str = "o") -> None:
+    ax.plot(s.xs, s.ys, marker=marker, linewidth=2.0, markersize=4, label=s.label)
+    if (
+        draw_band
+        and s.y_lo is not None
+        and s.y_hi is not None
+        and len(s.y_lo) == len(s.ys) == len(s.y_hi)
+    ):
         ax.fill_between(s.xs, s.y_lo, s.y_hi, alpha=0.15, linewidth=0)
 
 
@@ -245,30 +260,89 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description="Plot robustness curves from diffusion/heat ablation CSV files."
     )
-    ap.add_argument("--csv", nargs="+", required=True,
-                    help="CSV file(s), directory(ies), or glob(s). Each CSV should contain λ vs robustness.")
-    ap.add_argument("--out", type=str, default="figs/ablations_diffusion.png",
-                    help="Primary output image path. Parent directory is created.")
-    ap.add_argument("--out-formats", type=str, default="png,pdf",
-                    help="Comma‑separated list of formats to save (e.g., png,pdf,svg).")
-    ap.add_argument("--title", type=str, default="Diffusion 1D: STL Weight Sweep",
-                    help="Figure title.")
-    ap.add_argument("--xlabel", type=str, default="λ (STL weight)",
-                    help="X label.")
-    ap.add_argument("--ylabel", type=str, default="Robustness  G(mean_x u ≤ u_max)",
-                    help="Y label.")
+    ap.add_argument(
+        "--csv",
+        nargs="+",
+        required=True,
+        help=(
+            "CSV file(s), directory(ies), or glob(s). Each CSV should contain "
+            "λ vs robustness."
+        ),
+    )
+    ap.add_argument(
+        "--out",
+        type=str,
+        default="figs/ablations_diffusion.png",
+        help="Primary output image path. Parent directory is created.",
+    )
+    ap.add_argument(
+        "--out-formats",
+        type=str,
+        default="png,pdf",
+        help="Comma‑separated list of formats to save (e.g., png,pdf,svg).",
+    )
+    ap.add_argument(
+        "--title",
+        type=str,
+        default="Diffusion 1D: STL Weight Sweep",
+        help="Figure title.",
+    )
+    ap.add_argument(
+        "--xlabel",
+        type=str,
+        default="λ (STL weight)",
+        help="X label.",
+    )
+    ap.add_argument(
+        "--ylabel",
+        type=str,
+        default="Robustness  G(mean_x u ≤ u_max)",
+        help="Y label.",
+    )
     ap.add_argument("--xscale", choices=["linear", "log"], default="linear")
     ap.add_argument("--yscale", choices=["linear", "log"], default="linear")
-    ap.add_argument("--xcol", type=str, default=None, help="Explicit x column name (if header present).")
-    ap.add_argument("--ycol", type=str, default=None, help="Explicit y column name (if header present).")
-    ap.add_argument("--aggregate", action="store_true",
-                    help="Aggregate across all inputs (mean ± 95%% CI) assuming shared λ grid.")
-    ap.add_argument("--x-decimals", type=int, default=None,
-                    help="Round x to this many decimals before aggregation (helps align near‑duplicates).")
-    ap.add_argument("--err-mult", type=float, default=None,
-                    help="Multiplier for 'std/sem/stderr' columns when present. Default: 1.0 for std, 1.96 for sem/stderr.")
-    ap.add_argument("--figsize", type=float, nargs=2, default=(4.0, 3.0),
-                    help="Figure size inches (W H).")
+    ap.add_argument(
+        "--xcol",
+        type=str,
+        default=None,
+        help="Explicit x column name (if header present).",
+    )
+    ap.add_argument(
+        "--ycol",
+        type=str,
+        default=None,
+        help="Explicit y column name (if header present).",
+    )
+    ap.add_argument(
+        "--aggregate",
+        action="store_true",
+        help="Aggregate across all inputs (mean ± 95% CI) assuming shared λ grid.",
+    )
+    ap.add_argument(
+        "--x-decimals",
+        type=int,
+        default=None,
+        help=(
+            "Round x to this many decimals before aggregation "
+            "(helps align near‑duplicates)."
+        ),
+    )
+    ap.add_argument(
+        "--err-mult",
+        type=float,
+        default=None,
+        help=(
+            "Multiplier for 'std/sem/stderr' columns when present. "
+            "Default: 1.0 for std, 1.96 for sem/stderr."
+        ),
+    )
+    ap.add_argument(
+        "--figsize",
+        type=float,
+        nargs=2,
+        default=(4.0, 3.0),
+        help="Figure size inches (W H).",
+    )
     ap.add_argument("--dpi", type=int, default=150, help="Figure DPI.")
     ap.add_argument("--legend", action="store_true", help="Show legend (auto‑labels by filename).")
     args = ap.parse_args()
@@ -279,7 +353,7 @@ def main() -> None:
         raise SystemExit("No CSV files found.")
 
     # Load series
-    series_list: List[Series] = []
+    series_list: list[Series] = []
     for f in files:
         _, rows = _sniff_and_open(Path(f))
         label = _sanitize_label_from_filename(Path(f))
@@ -299,7 +373,7 @@ def main() -> None:
     ax.set_xscale(args.xscale)
     ax.set_yscale(args.yscale)
 
-    for i, s in enumerate(series_list):
+    for s in series_list:
         _plot(ax, s, draw_band=True, marker="o")
 
     if args.legend and len(series_list) > 1:
@@ -312,7 +386,7 @@ def main() -> None:
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     formats = [fmt.strip() for fmt in args.out_formats.split(",") if fmt.strip()]
-    saved: List[Path] = []
+    saved: list[Path] = []
     for fmt in formats:
         target = out_path.with_suffix("." + fmt.lower())
         fig.savefig(target, bbox_inches="tight")
