@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import Any, Iterable, Mapping, Sequence, Tuple, Optional, List
-from pathlib import Path
 import argparse
 import json
-import math
 import sys
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 # Import only lightweight helpers at module import time
 from physical_ai_stl.monitoring.rtamt_monitor import (
     evaluate_series as _rtamt_evaluate_series,
-    stl_always_upper_bound as _rtamt_stl_upper,
     satisfied as _rtamt_satisfied,
+    stl_always_upper_bound as _rtamt_stl_upper,
 )
 
 # -----------------------------------------------------------------------------
@@ -32,34 +32,91 @@ class Args:
     spec: str               # 'upper' | 'lower' | 'range'
     u_max: float | None
     u_min: float | None
-    json_out: Optional[str]
+    json_out: str | None
     verbose: bool
 
 
 def build_argparser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        description="Evaluate STL robustness with RTAMT for a saved diffusion PINN field.",
+        description=(
+            "Evaluate STL robustness with RTAMT for a saved diffusion PINN field."
+        ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    ap.add_argument("--ckpt", type=str, default="results/diffusion1d_week2_field.pt",
-                    help="Path to *_field.pt artifact saved by training script")
-    ap.add_argument("--var", type=str, default="u", help="Field variable name in the checkpoint")
-    ap.add_argument("--semantics", type=str, choices=["dense", "discrete"], default="dense",
-                    help="Time semantics to use for STL monitor")
-    ap.add_argument("--dt", type=float, default=None,
-                    help="Time step (if not inferable from checkpoint 'T')")
-    ap.add_argument("--agg", type=str, default="mean",
-                    choices=["mean", "amax", "amin", "median", "quantile", "lp", "softmax"],
-                    help="Spatial reducer applied before monitoring")
+    ap.add_argument(
+        "--ckpt",
+        type=str,
+        default="results/diffusion1d_week2_field.pt",
+        help="Path to *_field.pt artifact saved by training script",
+    )
+    ap.add_argument(
+        "--var",
+        type=str,
+        default="u",
+        help="Field variable name in the checkpoint",
+    )
+    ap.add_argument(
+        "--semantics",
+        type=str,
+        choices=["dense", "discrete"],
+        default="dense",
+        help="Time semantics to use for STL monitor",
+    )
+    ap.add_argument(
+        "--dt",
+        type=float,
+        default=None,
+        help="Time step (if not inferable from checkpoint 'T')",
+    )
+    ap.add_argument(
+        "--agg",
+        type=str,
+        default="mean",
+        choices=["mean", "amax", "amin", "median", "quantile", "lp", "softmax"],
+        help="Spatial reducer applied before monitoring",
+    )
     ap.add_argument("--p", type=float, default=4.0, help="p for --agg lp (p-norm)")
     ap.add_argument("--q", type=float, default=0.95, help="q for --agg quantile in [0,1]")
-    ap.add_argument("--temp", type=float, default=10.0, help="temperature for --agg softmax (higher≈harder max)")
-    ap.add_argument("--spec", type=str, choices=["upper", "lower", "range"], default="upper",
-                    help="Which STL predicate to enforce under the outer 'always'")
-    ap.add_argument("--u-max", dest="u_max", type=float, default=None, help="Upper bound for 'upper'/'range'")
-    ap.add_argument("--u-min", dest="u_min", type=float, default=None, help="Lower bound for 'lower'/'range'")
-    ap.add_argument("--json", dest="json_out", type=str, default=None, help="Optional path to write a JSON summary")
-    ap.add_argument("-v", "--verbose", action="store_true", help="Verbose prints (shape guesses, dt, etc.)")
+    ap.add_argument(
+        "--temp",
+        type=float,
+        default=10.0,
+        help="temperature for --agg softmax (higher≈harder max)",
+    )
+    ap.add_argument(
+        "--spec",
+        type=str,
+        choices=["upper", "lower", "range"],
+        default="upper",
+        help="Which STL predicate to enforce under the outer 'always'",
+    )
+    ap.add_argument(
+        "--u-max",
+        dest="u_max",
+        type=float,
+        default=None,
+        help="Upper bound for 'upper'/'range'",
+    )
+    ap.add_argument(
+        "--u-min",
+        dest="u_min",
+        type=float,
+        default=None,
+        help="Lower bound for 'lower'/'range'",
+    )
+    ap.add_argument(
+        "--json",
+        dest="json_out",
+        type=str,
+        default=None,
+        help="Optional path to write a JSON summary",
+    )
+    ap.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Verbose prints (shape guesses, dt, etc.)",
+    )
     return ap
 
 
@@ -90,7 +147,7 @@ def _as_tensor(x: Any):
     return torch.as_tensor(x, dtype=torch.float32).detach().to("cpu")
 
 
-def _infer_time_axis(u: Any, T: Optional[Any]) -> Tuple[int, int]:
+def _infer_time_axis(u: Any, T: Any | None) -> tuple[int, int]:
     U = _as_tensor(u)
     shape = list(U.shape)
     if T is not None:
@@ -144,7 +201,7 @@ def _reduce_spatial(U, time_axis: int, *, mode: str, p: float, q: float, temp: f
     return S.detach().to("cpu")
 
 
-def _infer_dt(T: Optional[Any], fallback: Optional[float], nt: int) -> float:
+def _infer_dt(T: Any | None, fallback: float | None, nt: int) -> float:  # noqa: ARG001
     if T is not None:
         tt = _as_tensor(T).flatten().numpy()
         if tt.size >= 2:
@@ -152,23 +209,38 @@ def _infer_dt(T: Optional[Any], fallback: Optional[float], nt: int) -> float:
             dt = float(diffs.mean())
             # If highly non‑uniform, emit a verbose note.
             if diffs.size and (abs(diffs.std()) > 1e-6 * max(1.0, abs(dt))):
-                print(f"[note] Non‑uniform time grid (σ={diffs.std():.3g}); using mean dt={dt:.6g}", file=sys.stderr)
+                print(
+                    f"[note] Non‑uniform time grid (σ={diffs.std():.3g}); using mean dt={dt:.6g}",
+                    file=sys.stderr,
+                )
             return dt
     if fallback is None:
         raise SystemExit("[fatal] Could not infer dt (no 'T' and no --dt provided)")
     return float(fallback)
 
 
-def _build_spec(var: str, kind: str, u_min: Optional[float], u_max: Optional[float], semantics: str):
+def _build_spec(
+    var: str,
+    kind: str,
+    u_min: float | None,
+    u_max: float | None,
+    semantics: str,
+):
     try:
         # Try building via RTAMT; reuse helper for the common 'upper' case.
         if kind == "upper":
-            return _rtamt_stl_upper(var=var, u_max=float(u_max if u_max is not None else 1.0),
-                                    time_semantics=semantics)
+            return _rtamt_stl_upper(
+                var=var,
+                u_max=float(u_max if u_max is not None else 1.0),
+                time_semantics=semantics,
+            )
         # Generic builder for others
         import rtamt  # type: ignore
         if semantics == "dense":
-            SpecCls = getattr(rtamt, 'StlDenseTimeSpecification', None) or getattr(rtamt, 'StlDenseTimeOfflineSpecification')
+            SpecCls = getattr(rtamt, "StlDenseTimeSpecification", None) or getattr(
+                rtamt,
+                "StlDenseTimeOfflineSpecification",
+            )
         else:
             SpecCls = rtamt.StlDiscreteTimeSpecification
         spec = SpecCls()
@@ -192,11 +264,17 @@ def _build_spec(var: str, kind: str, u_min: Optional[float], u_max: Optional[flo
         return None
 
 
-def _robustness_fallback(series: Iterable[float], *, kind: str, u_min: Optional[float], u_max: Optional[float]) -> float:
+def _robustness_fallback(
+    series: Iterable[float],
+    *,
+    kind: str,
+    u_min: float | None,
+    u_max: float | None,
+) -> float:
     import numpy as np
     s = np.asarray(list(series), dtype=float)
     if s.ndim != 1 or s.size == 0:
-        return float('nan')
+        return float("nan")
     if kind == "upper":
         if u_max is None:
             raise SystemExit("[fatal] --u-max required for --spec upper")
@@ -216,8 +294,16 @@ def _robustness_fallback(series: Iterable[float], *, kind: str, u_min: Optional[
     raise SystemExit(f"[fatal] Unknown spec kind {kind!r}")
 
 
-def _evaluate(var_name: str, series: Sequence[float], dt: float, *, spec_kind: str,
-              semantics: str, u_min: Optional[float], u_max: Optional[float]) -> Tuple[float, bool, str]:
+def _evaluate(
+    var_name: str,  # noqa: ARG001 - kept for clarity in prints when extended
+    series: Sequence[float],
+    dt: float,
+    *,
+    spec_kind: str,
+    semantics: str,
+    u_min: float | None,
+    u_max: float | None,
+) -> tuple[float, bool, str]:
     # Try RTAMT first
     spec = _build_spec("s", spec_kind, u_min, u_max, semantics)
     if spec is not None:
@@ -258,7 +344,7 @@ def main() -> None:
     # Choose the time axis and compute the spatially reduced series
     t_axis, nt = _infer_time_axis(U, T)
     S = _reduce_spatial(U, t_axis, mode=args.agg, p=args.p, q=args.q, temp=args.temp)
-    series: List[float] = S.tolist()
+    series: list[float] = S.tolist()
 
     # Infer dt (prefer checkpoint T)
     dt = _infer_dt(T, args.dt, nt)
@@ -268,8 +354,15 @@ def main() -> None:
     u_min = float(args.u_min) if args.u_min is not None else float(data.get("u_min", 0.0))
 
     # Evaluate
-    rob, sat, backend = _evaluate(args.var, series, dt, spec_kind=args.spec,
-                                  semantics=args.semantics, u_min=u_min, u_max=u_max)
+    rob, sat, backend = _evaluate(
+        args.var,
+        series,
+        dt,
+        spec_kind=args.spec,
+        semantics=args.semantics,
+        u_min=u_min,
+        u_max=u_max,
+    )
 
     # Human‑friendly print
     if args.spec == "upper":
@@ -279,8 +372,11 @@ def main() -> None:
     else:
         pred = f"G ({u_min:g} <= reduce_x {args.var} <= {u_max:g})"
     verdict = "SAT" if sat else "UNSAT"
-    print(f"[{verdict}] robustness={rob:.6g} using {backend}  |  spec: {pred}  "
-          f"(semantics={args.semantics}, agg={args.agg}, dt={dt:g}, nt={nt})")
+    msg = (
+        f"[{verdict}] robustness={rob:.6g} using {backend}  |  spec: {pred}  "
+        f"(semantics={args.semantics}, agg={args.agg}, dt={dt:g}, nt={nt})"
+    )
+    print(msg)
 
     # Optional JSON summary
     if args.json_out:
@@ -306,6 +402,7 @@ def main() -> None:
         with outp.open("w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2)
         print(f"[saved] {outp}")
+
 
 if __name__ == "__main__":
     main()
