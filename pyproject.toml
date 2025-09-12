@@ -90,8 +90,39 @@ all = [
 [tool.hatch.version]
 path = "src/physical_ai_stl/__init__.py"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/physical_ai_stl"]
+# Ship typing marker for type checkers.
+force-include = { "src/physical_ai_stl/py.typed" = "physical_ai_stl/py.typed" }
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/**",
+  "tests/**",
+  "README.md",
+  "LICENSE",
+  "pyproject.toml",
+  "requirements.txt",
+  "requirements-dev.txt",
+  "requirements-extra.txt",
+  "configs/**",
+  "docs/**",
+  "scripts/**",
+  ".github/workflows/ci.yml",
+]
+exclude = ["**/__pycache__"]
+
 # -----------------------------
-# Ruff (fast lint/format)
+# Testing
+# -----------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-q"
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+# -----------------------------
+# Ruff (fast linter/formatter)
 # -----------------------------
 [tool.ruff]
 line-length = 120
@@ -122,6 +153,14 @@ ignore_missing_imports = true
 # uv: deterministic, fast installs
 # -----------------------------
 [tool.uv]
+# So setup-uv doesn't fall back to "latest" at each run
+required-version = ">=0.8.15"
+
+[tool.uv.pip]
+# Fewer forks for faster resolution on CI
+fork-strategy = "fewest"
+
+[tool.uv.sources]
 # If torch is requested via extras, prefer CPU wheels to avoid multi-GB CUDA downloads
 torch = { index = "pytorch-cpu" }
 # NVIDIA PhysicsNeMo wheels live on NVIDIA's index
