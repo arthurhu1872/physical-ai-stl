@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import json
-import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+import json
 from pathlib import Path
+import sys
 from typing import Any
 
 # Import only lightweight helpers at module import time
@@ -15,9 +15,11 @@ from physical_ai_stl.monitoring.rtamt_monitor import (
     stl_always_upper_bound as _rtamt_stl_upper,
 )
 
+
 # -----------------------------------------------------------------------------
 # Argument parsing
 # -----------------------------------------------------------------------------
+
 
 @dataclass
 class Args:
@@ -123,6 +125,7 @@ def build_argparser() -> argparse.ArgumentParser:
 # -----------------------------------------------------------------------------
 # Core helpers
 # -----------------------------------------------------------------------------
+
 
 def _load_ckpt(path: Path) -> Mapping[str, Any]:
     try:
@@ -322,6 +325,7 @@ def _evaluate(
 # -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
+
 
 def main() -> None:
     args = Args(**vars(build_argparser().parse_args()))
