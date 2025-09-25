@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterable
 import csv
-from dataclasses import dataclass
 import math
 import os
+
+from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
 
 
