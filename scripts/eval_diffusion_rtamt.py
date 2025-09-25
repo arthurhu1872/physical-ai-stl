@@ -1,14 +1,14 @@
+# ruff: noqa: I001
 from __future__ import annotations
 
 import argparse
+import json
+import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-import json
 from pathlib import Path
-import sys
 from typing import Any
 
-# Import only lightweight helpers at module import time
 from physical_ai_stl.monitoring.rtamt_monitor import (
     evaluate_series as _rtamt_evaluate_series,
     satisfied as _rtamt_satisfied,
