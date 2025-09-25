@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Iterable
 import csv
-from dataclasses import dataclass
 import math
-from pathlib import Path
 import re
 import statistics
+
+from collections.abc import Iterable
+from dataclasses import dataclass
+from pathlib import Path
 
 import matplotlib
 import matplotlib.pyplot as plt
