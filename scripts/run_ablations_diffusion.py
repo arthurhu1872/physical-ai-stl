@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable
 import csv
+from dataclasses import dataclass
 import math
 import os
-from collections.abc import Iterable
-from dataclasses import dataclass
 from typing import Any
 
 
@@ -40,10 +40,11 @@ def _train_and_measure_once(
     tag_suffix: str = "",
 ) -> float:
     try:
-        # Order imports alphabetically to satisfy Ruff/isort, even inside functions.
+        # Third-party then first-party (to satisfy Ruff/isort), even inside functions.
+        import torch  # type: ignore
+
         from physical_ai_stl.experiments import run as run_experiment  # type: ignore
         from physical_ai_stl.monitoring.stl_soft import always, pred_leq  # type: ignore
-        import torch  # type: ignore
 
         # Prepare a minimal config dict. Keys mirror the YAML files in configs/.
         tag = f"abl_w{stl_weight:g}{tag_suffix}"
@@ -95,7 +96,9 @@ def _train_and_measure_once(
         elif stl_spatial == "amax":
             signal_t = u.amax(dim=0)
         else:
-            raise ValueError("Unknown stl_spatial={!r} (expected 'mean'|'softmax'|'amax').".format(stl_spatial))
+            raise ValueError(
+                f"Unknown stl_spatial={stl_spatial!r} (expected 'mean'|'softmax'|'amax')."
+            )
 
         margins = pred_leq(signal_t, u_max_val)
         rob = always(margins, temp=float(stl_temp), time_dim=-1)  # scalar
