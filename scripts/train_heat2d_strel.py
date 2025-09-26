@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Callable
 
 import numpy as np
 
@@ -393,9 +393,7 @@ def train_heat2d(cfg: TrainConfig, out_dir: Path, audit: bool, mls: Path) -> Pat
 
 def main() -> None:
     ap = argparse.ArgumentParser(
-        description=(
-            "Train a 2‑D heat‑equation PINN and optionally audit with MoonLight STREL."
-        )
+        description=("Train a 2‑D heat‑equation PINN and optionally audit with MoonLight STREL.")
     )
     # training
     ap.add_argument("--epochs", type=int, default=200, help="Training steps (default: 200).")
