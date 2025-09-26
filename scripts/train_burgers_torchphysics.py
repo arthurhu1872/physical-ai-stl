@@ -1,13 +1,13 @@
+# ruff: noqa: I001
 from __future__ import annotations
-
-from collections.abc import Sequence
-from dataclasses import asdict, dataclass
-from pathlib import Path
 
 import argparse
 import math
 import sys
 import time
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
