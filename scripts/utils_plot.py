@@ -1,18 +1,22 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Iterable, Optional, Sequence, Tuple, Union
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
 try:  # optional torch dependency (but commonly available in this repo)
     import torch  # type: ignore
+
     _HAS_TORCH = True
 except Exception:  # pragma: no cover - allow pure NumPy usage
     _HAS_TORCH = False
 
-ArrayLike = Union["torch.Tensor", np.ndarray, Sequence[float]]
+if _HAS_TORCH:
+    ArrayLike = torch.Tensor | np.ndarray | Sequence[float]
+else:
+    ArrayLike = np.ndarray | Sequence[float]
 
 
 # -----------------------------------------------------------------------------
@@ -27,13 +31,13 @@ def _to_numpy(x: ArrayLike) -> np.ndarray:
     return np.asarray(x)
 
 
-def _ensure_dir(path: Union[str, Path]) -> None:
+def _ensure_dir(path: str | Path) -> None:
     p = Path(path)
     if p.parent != Path("."):
         p.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _maybe_downsample(img: np.ndarray, max_elems: int = 2_000_000) -> Tuple[np.ndarray, int, int]:
+def _maybe_downsample(img: np.ndarray, max_elems: int = 2_000_000) -> tuple[np.ndarray, int, int]:
     rows, cols = img.shape[-2], img.shape[-1]
     elems = rows * cols
     if elems <= max_elems:
@@ -43,7 +47,7 @@ def _maybe_downsample(img: np.ndarray, max_elems: int = 2_000_000) -> Tuple[np.n
     return img[::stride, ::stride], stride, stride
 
 
-def _extent_from_coords(y: np.ndarray, x: np.ndarray) -> Tuple[float, float, float, float]:
+def _extent_from_coords(y: np.ndarray, x: np.ndarray) -> tuple[float, float, float, float]:
     x_min, x_max = float(np.min(x)), float(np.max(x))
     y_min, y_max = float(np.min(y)), float(np.max(y))
     return (x_min, x_max, y_min, y_max)
@@ -68,9 +72,9 @@ def plot_u_xt(
     x: ArrayLike,
     t: ArrayLike,
     *,
-    out: Union[str, Path] = "figs/diffusion_heatmap.png",
-    vmin: Optional[float] = None,
-    vmax: Optional[float] = None,
+    out: str | Path = "figs/diffusion_heatmap.png",
+    vmin: float | None = None,
+    vmax: float | None = None,
     add_colorbar: bool = True,
     title: str = "1‑D Diffusion PINN (u)",
     max_elems: int = 2_000_000,
@@ -117,9 +121,9 @@ def plot_u_xt(
 def plot_u_xy_frame(
     u_xy: ArrayLike,
     *,
-    x: Optional[ArrayLike] = None,
-    y: Optional[ArrayLike] = None,
-    out: Union[str, Path] = "figs/heat2d_t0.png",
+    x: ArrayLike | None = None,
+    y: ArrayLike | None = None,
+    out: str | Path = "figs/heat2d_t0.png",
     add_colorbar: bool = True,
     title: str = "2‑D Heat (single frame)",
     dpi: int = 150,
@@ -166,10 +170,10 @@ def plot_time_slices(
     x: ArrayLike,
     t: ArrayLike,
     *,
-    times: Optional[Iterable[float]] = None,
+    times: Iterable[float] | None = None,
     num_slices: int = 4,
-    out: Union[str, Path] = "figs/diffusion_slices.png",
-    u_bounds: Optional[Tuple[Optional[float], Optional[float]]] = None,
+    out: str | Path = "figs/diffusion_slices.png",
+    u_bounds: tuple[float | None, float | None] | None = None,
     title: str = "u(x,t) at selected times",
     dpi: int = 150,
 ) -> Path:
@@ -211,11 +215,11 @@ def plot_spatial_mean_over_time(
     u: ArrayLike,
     t: ArrayLike,
     *,
-    mean_dims: Optional[Tuple[int, ...]] = None,
-    out: Union[str, Path] = "figs/mean_over_time.png",
-    u_max: Optional[float] = None,
+    mean_dims: tuple[int, ...] | None = None,
+    out: str | Path = "figs/mean_over_time.png",
+    u_max: float | None = None,
     var_name: str = "u",
-    title: Optional[str] = None,
+    title: str | None = None,
     dpi: int = 150,
 ) -> Path:
     u_np = _to_numpy(u)
@@ -251,10 +255,9 @@ def plot_spatial_mean_over_time(
 
 
 # Backwards‑compatible aliases (if other scripts import the old names)
-def plot_u_1d(u: ArrayLike, X: ArrayLike, T: ArrayLike, out: Union[str, Path] = "figs/diffusion_heatmap.png") -> Path:
-
+def plot_u_1d(u: ArrayLike, X: ArrayLike, T: ArrayLike, out: str | Path = "figs/diffusion_heatmap.png") -> Path:
     return plot_u_xt(u=u, x=X, t=T, out=out)
 
 
-def plot_u_2d_frame(u_frame: ArrayLike, out: Union[str, Path] = "figs/heat2d_t0.png") -> Path:
+def plot_u_2d_frame(u_frame: ArrayLike, out: str | Path = "figs/heat2d_t0.png") -> Path:
     return plot_u_xy_frame(u_xy=u_frame, out=out)
