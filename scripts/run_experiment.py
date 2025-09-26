@@ -7,10 +7,10 @@ import os
 import pkgutil
 import sys
 import time
+from collections.abc import Iterable, Iterator
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
-from collections.abc import Iterable, Iterator
 
 # ---------------------------------------------------------------------------
 # YAML loader (with a crisp error if pyyaml isn't installed)
