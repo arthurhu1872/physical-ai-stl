@@ -1,13 +1,13 @@
-# scripts/train_burgers_torchphysics.py
 from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 import argparse
 import math
 import sys
 import time
-from collections.abc import Sequence
-from dataclasses import asdict, dataclass
-from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
@@ -111,13 +111,12 @@ def _parse_args() -> Args:
 def _maybe_placeholder(args: Args) -> Path | None:
     if args.dryrun:
         try:
-            import torch  # noqa: F401
+            import torch
         except Exception as exc:  # pragma: no cover
             print(f"Torch not available: {exc}")
             return None
         args.results.mkdir(parents=True, exist_ok=True)
         out = args.results / f"burgers_{args.tag}.pt"
-        import torch
 
         ckpt = {
             "u": torch.zeros(4, 4),
