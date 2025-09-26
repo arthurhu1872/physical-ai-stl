@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Optional, Tuple
 
 import numpy as np
 
@@ -78,8 +77,8 @@ class SyntheticSTLNetDataset:
 
     __slots__ = ("_data",)
 
-    def __init__(self, length: int = 100, noise: float = 0.05, rng: Optional[object] = None) -> None:
-        if not isinstance(length, (int, np.integer)):
+    def __init__(self, length: int = 100, noise: float = 0.05, rng: object | None = None) -> None:
+        if not isinstance(length, int | np.integer):
             raise TypeError(f"length must be an integer; got {type(length).__name__}")
         if length < 0:
             raise ValueError(f"length must be non‑negative; got {length}")
@@ -117,7 +116,7 @@ class SyntheticSTLNetDataset:
     def __len__(self) -> int:  # pragma: no cover - trivial
         return int(self._data.shape[0])
 
-    def __getitem__(self, idx: int) -> Tuple[float, float]:
+    def __getitem__(self, idx: int) -> tuple[float, float]:
         t, v = self._data[idx]  # NumPy handles negative/overflow checks.
         return float(t), float(v)
 
@@ -137,7 +136,7 @@ class SyntheticSTLNetDataset:
 
     # STL helpers --------------------------------------------------------------
 
-    def windows(self, length: int, stride: int = 1) -> Tuple[np.ndarray, np.ndarray]:
+    def windows(self, length: int, stride: int = 1) -> tuple[np.ndarray, np.ndarray]:
         if length <= 0:
             raise ValueError("window length must be positive.")
         if stride <= 0:
@@ -150,7 +149,7 @@ class SyntheticSTLNetDataset:
         self,
         spec: BoundedAtomicSpec,
         stride: int = 1,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         H = int(spec.horizon)
         t_win, v_win = self.windows(H + 1, stride=stride)
         rho = spec.robustness(self.v, stride=stride)
