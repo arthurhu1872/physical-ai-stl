@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # -------------------------------------------------------------------------
 # Utilities
 # -------------------------------------------------------------------------
+
 
 def _ensure_package_on_path(pkg: str = "physical_ai_stl") -> None:
     try:
@@ -32,19 +32,22 @@ def _ensure_package_on_path(pkg: str = "physical_ai_stl") -> None:
     # If we get here, we will fail later upon import with a clear error.
     # No raise, so users with custom layouts can still succeed.
 
+
 def _as_jsonable(obj: Any) -> Any:
-    if isinstance(obj, (str, int, float, bool)) or obj is None:
+    if isinstance(obj, str | int | float | bool) or obj is None:
         return obj
     if isinstance(obj, dict):
         return {str(k): _as_jsonable(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
+    if isinstance(obj, list | tuple):
         return [_as_jsonable(v) for v in obj]
     # Fallback to string
     return str(obj)
 
+
 # -------------------------------------------------------------------------
 # Main
 # -------------------------------------------------------------------------
+
 
 def main() -> None:
     _ensure_package_on_path()
@@ -52,9 +55,9 @@ def main() -> None:
     # First‑party imports inside the function keep top‑level block
     # strictly future -> stdlib -> third‑party (Ruff/isort‑friendly).
     from physical_ai_stl import about, optional_dependencies
-    from physical_ai_stl.utils.seed import seed_everything
     from physical_ai_stl.frameworks import neuromancer_stl_demo as nm_demo
     from physical_ai_stl.frameworks.neuromancer_stl_demo import DemoConfig, train_demo
+    from physical_ai_stl.utils.seed import seed_everything
 
     ap = argparse.ArgumentParser(
         description="Train a tiny Neuromancer demo with an STL-style bound."
@@ -66,8 +69,12 @@ def main() -> None:
     ap.add_argument("--n", type=int, default=256, help="Number of training samples.")
     ap.add_argument("--seed", type=int, default=7, help="Global RNG seed for reproducibility.")
     ap.add_argument("--device", type=str, default="cpu", help='PyTorch device ("cpu", "cuda", etc.).')
-    ap.add_argument("--mode", choices=["both", "pytorch", "neuromancer"], default="both",
-                    help="Which path(s) to run. Default: both.")
+    ap.add_argument(
+        "--mode",
+        choices=["both", "pytorch", "neuromancer"],
+        default="both",
+        help="Which path(s) to run. Default: both.",
+    )
     ap.add_argument(
         "--out",
         type=str,
@@ -104,7 +111,7 @@ def main() -> None:
         print("=" * 76)
 
     # Run the selected training path(s).
-    results: Dict[str, Optional[Dict[str, float]]]
+    results: dict[str, dict[str, float] | None]
     if args.mode == "both":
         results = train_demo(cfg)  # returns {'pytorch': {...}, 'neuromancer': {...|None}}
     else:
@@ -129,7 +136,7 @@ def main() -> None:
 
     # Attach a compact environment report (versions/availability of optional deps).
     results_env = optional_dependencies()
-    payload: Dict[str, Any] = {"config": cfg.__dict__, "results": results, "env": results_env}
+    payload: dict[str, Any] = {"config": cfg.__dict__, "results": results, "env": results_env}
 
     # Write JSON to disk.
     out_path = Path(args.out)
@@ -146,6 +153,7 @@ def main() -> None:
         print(json.dumps(_as_jsonable(payload), indent=2, sort_keys=True))
     else:
         print(json.dumps(_as_jsonable(payload)))
+
 
 if __name__ == "__main__":
     main()
