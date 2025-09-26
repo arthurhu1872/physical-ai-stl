@@ -1,17 +1,17 @@
 # scripts/train_burgers_torchphysics.py
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import Callable, Optional, Sequence
-
 import argparse
 import math
-import os
 import sys
 import time
+from collections.abc import Sequence
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
 
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class Args:
@@ -27,9 +27,9 @@ class Args:
     activation: str = "tanh"  # TorchPhysics FCN default is Tanh()
 
     # Sampling
-    n_pde: int = 4096          # points in interior per step
-    n_ic: int = 1024           # points on t = t_min
-    n_bc: int = 512            # points on x = {x_min, x_max}
+    n_pde: int = 4096  # points in interior per step
+    n_ic: int = 1024  # points on t = t_min
+    n_bc: int = 512  # points on x = {x_min, x_max}
     seed: int = 7
 
     # STL penalty (|u| <= u_max globally in time and space samples)
@@ -39,8 +39,8 @@ class Args:
     # Optimization
     lr: float = 1e-3
     max_steps: int = 5000
-    device: str = "auto"       # "auto" | "cpu" | "gpu"
-    precision: int = 32        # 16 | 32 | 64 (PyTorch Lightning precision)
+    device: str = "auto"  # "auto" | "cpu" | "gpu"
+    precision: int = 32  # 16 | 32 | 64 (PyTorch Lightning precision)
     log_every_n_steps: int = 100
 
     # Export
@@ -70,14 +70,26 @@ def _parse_args() -> Args:
     p.add_argument("--n-bc", type=int, default=Args.n_bc)
     p.add_argument("--seed", type=int, default=Args.seed)
     # STL
-    p.add_argument("--lambda-stl", type=float, default=Args.lambda_stl, dest="lambda_stl",
-                   help="Weight for STL penalty (0 disables).")
-    p.add_argument("--u-max", type=float, default=Args.u_max, dest="u_max",
-                   help="Max |u| in G[t_min,t_max] |u| <= u_max.")
+    p.add_argument(
+        "--lambda-stl",
+        type=float,
+        default=Args.lambda_stl,
+        dest="lambda_stl",
+        help="Weight for STL penalty (0 disables).",
+    )
+    p.add_argument(
+        "--u-max",
+        type=float,
+        default=Args.u_max,
+        dest="u_max",
+        help="Max |u| in G[t_min,t_max] |u| <= u_max.",
+    )
     # Optimization
     p.add_argument("--lr", type=float, default=Args.lr)
     p.add_argument("--max-steps", type=int, default=Args.max_steps)
-    p.add_argument("--device", type=str, choices=("auto", "cpu", "gpu"), default=Args.device)
+    p.add_argument(
+        "--device", type=str, choices=("auto", "cpu", "gpu"), default=Args.device
+    )
     p.add_argument("--precision", type=int, choices=(16, 32, 64), default=Args.precision)
     p.add_argument("--log-every-n-steps", type=int, default=Args.log_every_n_steps)
     # Export
@@ -86,14 +98,17 @@ def _parse_args() -> Args:
     p.add_argument("--results", type=Path, default=Args.results)
     p.add_argument("--tag", type=str, default=Args.tag)
     # Fallback / CI
-    p.add_argument("--dryrun", action="store_true", help="Skip training; write a tiny placeholder artifact.")
+    p.add_argument(
+        "--dryrun", action="store_true", help="Skip training; write a tiny placeholder artifact."
+    )
     args = Args(**vars(p.parse_args()))
     return args
 
 
 # ---------------------------------------------------------------------------
 
-def _maybe_placeholder(args: Args) -> Optional[Path]:
+
+def _maybe_placeholder(args: Args) -> Path | None:
     if args.dryrun:
         try:
             import torch  # noqa: F401
@@ -103,6 +118,7 @@ def _maybe_placeholder(args: Args) -> Optional[Path]:
         args.results.mkdir(parents=True, exist_ok=True)
         out = args.results / f"burgers_{args.tag}.pt"
         import torch
+
         ckpt = {
             "u": torch.zeros(4, 4),
             "X": torch.linspace(0, 1, 4),
@@ -120,6 +136,7 @@ def _maybe_placeholder(args: Args) -> Optional[Path]:
 
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     args = _parse_args()
 
@@ -130,11 +147,13 @@ def main() -> None:
 
     # Import heavy deps lazily and fail back to placeholder if missing.
     try:
+        import pytorch_lightning as pl  # type: ignore
         import torch
         import torchphysics as tp  # type: ignore
-        import pytorch_lightning as pl  # type: ignore
     except Exception as exc:
-        print(f"[WARN] TorchPhysics stack not available ({exc!s}). Falling back to --dryrun artifact.")
+        print(
+            f"[WARN] TorchPhysics stack not available ({exc!s}). Falling back to --dryrun artifact."
+        )
         args.dryrun = True
         _maybe_placeholder(args)
         return
@@ -148,15 +167,23 @@ def main() -> None:
     U = tp.spaces.R1("u")
 
     Omega = tp.domains.Interval(X, lower_bound=args.x_min, upper_bound=args.x_max)
-    I = tp.domains.Interval(T, lower_bound=args.t_min, upper_bound=args.t_max)
+    time_interval = tp.domains.Interval(
+        T, lower_bound=args.t_min, upper_bound=args.t_max
+    )
 
     # --- Samplers -----------------------------------------------------------
     # Interior Ω×I  (for PDE residual)
-    sampler_pde = tp.samplers.RandomUniformSampler(Omega * I, n_points=args.n_pde)
+    sampler_pde = tp.samplers.RandomUniformSampler(
+        Omega * time_interval, n_points=args.n_pde
+    )
     # Initial condition Ω×{t_min}
-    sampler_ic = tp.samplers.RandomUniformSampler(Omega * I.boundary_left, n_points=args.n_ic)
+    sampler_ic = tp.samplers.RandomUniformSampler(
+        Omega * time_interval.boundary_left, n_points=args.n_ic
+    )
     # Dirichlet boundary ∂Ω×I (both ends)
-    sampler_bc = tp.samplers.RandomUniformSampler(Omega.boundary * I, n_points=args.n_bc)
+    sampler_bc = tp.samplers.RandomUniformSampler(
+        Omega.boundary * time_interval, n_points=args.n_bc
+    )
 
     # --- Residuals ----------------------------------------------------------
     # Burgers PDE: u_t + u*u_x − nu*u_xx = 0
@@ -169,6 +196,7 @@ def main() -> None:
     # Initial condition at t = t_min: u(x, t_min) = -sin(pi * (scaled x))
     # We scale x from [x_min,x_max] to [0,1] to get a single‑period sine.
     x_span = max(args.x_max - args.x_min, 1e-9)
+
     def u0(xd):
         x01 = (xd[:, 0] - args.x_min) / x_span
         return -torch.sin(math.pi * x01).unsqueeze(-1)
@@ -183,23 +211,32 @@ def main() -> None:
     # Optional STL: penalize violations of |u| ≤ u_max at sampled interior points.
     # Use sqrt(lambda) so the squared loss scales by lambda.
     sqrt_lambda = math.sqrt(max(args.lambda_stl, 0.0))
+
     def residual_stl(u):
         if sqrt_lambda == 0.0:
             # Returning a zero residual of correct shape avoids branching in the Condition.
-            return u*0.0
+            return u * 0.0
         return sqrt_lambda * torch.nn.functional.relu(torch.abs(u) - args.u_max)
 
     # --- Model --------------------------------------------------------------
-    norm = tp.models.NormalizationLayer(Omega * I)
-    fcn = tp.models.FCN(input_space=X*T, output_space=U, hidden=tuple(args.hidden))
+    norm = tp.models.NormalizationLayer(Omega * time_interval)
+    fcn = tp.models.FCN(input_space=X * T, output_space=U, hidden=tuple(args.hidden))
     model = tp.models.Sequential(norm, fcn)
 
     # --- Conditions ---------------------------------------------------------
-    cond_pde = tp.conditions.PINNCondition(module=model, sampler=sampler_pde, residual_fn=residual_pde)
-    cond_ic  = tp.conditions.PINNCondition(module=model, sampler=sampler_ic,  residual_fn=residual_ic)
-    cond_bc  = tp.conditions.PINNCondition(module=model, sampler=sampler_bc,  residual_fn=residual_bc)
+    cond_pde = tp.conditions.PINNCondition(
+        module=model, sampler=sampler_pde, residual_fn=residual_pde
+    )
+    cond_ic = tp.conditions.PINNCondition(
+        module=model, sampler=sampler_ic, residual_fn=residual_ic
+    )
+    cond_bc = tp.conditions.PINNCondition(
+        module=model, sampler=sampler_bc, residual_fn=residual_bc
+    )
     # STL penalty operates on the same interior sampler (can be different); it is a soft safety loss.
-    cond_stl = tp.conditions.PINNCondition(module=model, sampler=sampler_pde, residual_fn=lambda u, *_: residual_stl(u))
+    cond_stl = tp.conditions.PINNCondition(
+        module=model, sampler=sampler_pde, residual_fn=lambda u, *_: residual_stl(u)
+    )
 
     train_conditions = [cond_pde, cond_ic, cond_bc]
     if args.lambda_stl > 0:
@@ -210,9 +247,11 @@ def main() -> None:
     solver = tp.solver.Solver(train_conditions=train_conditions, optimizer_setting=optim)
 
     # --- Trainer ------------------------------------------------------------
-    use_gpu = (args.device == "gpu") or (args.device == "auto" and torch.cuda.is_available())
+    use_gpu = (args.device == "gpu") or (
+        args.device == "auto" and torch.cuda.is_available()
+    )
     accelerator = "gpu" if use_gpu else "cpu"
-    trainer = pytorch_lightning.Trainer(  # type: ignore[name-defined]
+    trainer = pl.Trainer(
         devices=1,
         accelerator=accelerator,
         precision=args.precision,
@@ -224,8 +263,10 @@ def main() -> None:
         benchmark=True,
     )
 
-    print(f"[INFO] Training on {accelerator.upper()} for {args.max_steps} steps "
-          f"(ν={args.nu}, hidden={tuple(args.hidden)}, λ_STL={args.lambda_stl})")
+    print(
+        f"[INFO] Training on {accelerator.upper()} for {args.max_steps} steps "
+        f"(ν={args.nu}, hidden={tuple(args.hidden)}, λ_STL={args.lambda_stl})"
+    )
 
     t0 = time.time()
     trainer.fit(solver)
@@ -235,13 +276,12 @@ def main() -> None:
     # --- Export a compact artifact -----------------------------------------
     # Evaluate on a dense Cartesian grid to save results in a framework‑agnostic format.
     n_x, n_t = int(args.n_x), int(args.n_t)
-    import torch as _torch  # alias to stress export does not depend on TorchPhysics
-    Xg = _torch.linspace(args.x_min, args.x_max, n_x)
-    Tg = _torch.linspace(args.t_min, args.t_max, n_t)
-    xs, ts = _torch.meshgrid(Xg, Tg, indexing="ij")  # shapes (n_x, n_t)
-    pts = _torch.stack([xs.flatten(), ts.flatten()], dim=1)
-    points = torchphysics.spaces.Points(pts, space=X*T)  # type: ignore[name-defined]
-    with _torch.no_grad():
+    Xg = torch.linspace(args.x_min, args.x_max, n_x)
+    Tg = torch.linspace(args.t_min, args.t_max, n_t)
+    xs, ts = torch.meshgrid(Xg, Tg, indexing="ij")  # shapes (n_x, n_t)
+    pts = torch.stack([xs.flatten(), ts.flatten()], dim=1)
+    points = tp.spaces.Points(pts, space=X * T)
+    with torch.no_grad():
         ug = model.forward(points).as_tensor.reshape(n_x, n_t)  # (x,t)
     u_grid = ug.T.contiguous()  # (t,x) for convenient heatmaps
 
@@ -250,26 +290,28 @@ def main() -> None:
     out_path = out_dir / f"burgers_{args.tag}.pt"
     meta = {
         "torchphysics": getattr(sys.modules.get("torchphysics"), "__version__", "unknown"),
-        "torch": _torch.__version__,
+        "torch": torch.__version__,
         "device": accelerator,
         "train_time_s": round(train_time, 3),
         "nu": args.nu,
         "n_params": sum(p.numel() for p in model.parameters()),
     }
-    _torch.save(
+    torch.save(
         {
             "u": u_grid,
             "X": Xg,
             "T": Tg,
-            "u_max": float(_torch.max(_torch.abs(u_grid))),
+            "u_max": float(torch.max(torch.abs(u_grid))),
             "args": asdict(args),
             "loss": final_loss,
             "meta": meta,
         },
         out_path,
     )
-    umax = float(_torch.max(_torch.abs(u_grid)))
-    print(f"[OK] Saved results to {out_path.resolve()} (grid: {n_t}×{n_x}, u_max={umax:.4f})")
+    umax = float(torch.max(torch.abs(u_grid)))
+    print(
+        f"[OK] Saved results to {out_path.resolve()} (grid: {n_t}×{n_x}, u_max={umax:.4f})"
+    )
 
 
 if __name__ == "__main__":
