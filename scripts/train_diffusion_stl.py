@@ -1,30 +1,30 @@
 from __future__ import annotations
 
+import argparse
+import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Sequence
-
-import argparse
-import math
-import os
 
 import torch
 from torch import nn, optim
 
 from physical_ai_stl.models.mlp import MLP
-from physical_ai_stl.physics.diffusion1d import residual_loss, boundary_loss
-from physical_ai_stl.training.grids import grid1d, sample_interior_1d
 from physical_ai_stl.monitoring.stl_soft import (
-    pred_leq, always, softmax as stl_softmax, STLPenalty
+    always,
+    pred_leq,
+    softmax as stl_softmax,
+    STLPenalty,
 )
-from physical_ai_stl.utils.seed import seed_everything
+from physical_ai_stl.physics.diffusion1d import boundary_loss, residual_loss
+from physical_ai_stl.training.grids import grid1d, sample_interior_1d
 from physical_ai_stl.utils.logger import CSVLogger
+from physical_ai_stl.utils.seed import seed_everything
 
 
 # -----------------------------------------------------------------------------
 
 
-def _auto_device(user_choice: Optional[str] = None) -> torch.device:
+def _auto_device(user_choice: str | None = None) -> torch.device:
     if user_choice:
         return torch.device(user_choice)
     if torch.cuda.is_available():
@@ -62,7 +62,7 @@ class Args:
     # model
     hidden: tuple[int, ...] = (64, 64, 64)
     activation: str = "tanh"
-    out_act: Optional[str] = None
+    out_act: str | None = None
 
     # grid/domain
     nx: int = 128
@@ -76,16 +76,16 @@ class Args:
     lr: float = 2e-3
     epochs: int = 200
     batch: int = 4096
-    opt: str = "adam"               # adam | adamw
+    opt: str = "adam"  # adam | adamw
     weight_decay: float = 0.0
-    sched: str = "none"             # none | onecycle | cosine
+    sched: str = "none"  # none | onecycle | cosine
     grad_clip: float = 0.0
 
     # physics
     alpha: float = 0.1
     n_boundary: int = 256
     n_initial: int = 512
-    sample_method: str = "sobol"    # sobol | uniform
+    sample_method: str = "sobol"  # sobol | uniform
     w_boundary: float = 1.0
     w_initial: float = 1.0
 
@@ -94,15 +94,15 @@ class Args:
     stl_weight: float = 0.0
     stl_u_max: float = 1.0
     stl_temp: float = 0.1
-    stl_spatial: str = "mean"       # mean | softmax | amax
-    stl_every: int = 1              # compute STL every k steps (k>=1)
-    stl_nx: int = 64                # coarse grid for STL monitoring
+    stl_spatial: str = "mean"  # mean | softmax | amax
+    stl_every: int = 1  # compute STL every k steps (k>=1)
+    stl_nx: int = 64  # coarse grid for STL monitoring
     stl_nt: int = 64
 
     # system / numerics
-    device: Optional[str] = None
-    dtype: str = "float32"          # float32 | float64
-    amp: bool = False               # AMP is conservative here (higher‑order grads)
+    device: str | None = None
+    dtype: str = "float32"  # float32 | float64
+    amp: bool = False  # AMP is conservative here (higher‑order grads)
     compile: bool = False
     seed: int = 0
     print_every: int = 25
@@ -111,15 +111,26 @@ class Args:
     results_dir: str = "results"
     tag: str = "run"
     save_ckpt: bool = True
-    resume: Optional[str] = None    # path to a saved checkpoint to resume from
+    resume: str | None = None  # path to a saved checkpoint to resume from
 
 
 def _parse() -> Args:
-    p = argparse.ArgumentParser(description="Train 1‑D diffusion PINN with optional STL penalty.")
+    p = argparse.ArgumentParser(
+        description="Train 1‑D diffusion PINN with optional STL penalty."
+    )
     # model
-    p.add_argument("--hidden", type=int, nargs="+", default=[64, 64, 64], help="hidden layer sizes")
-    p.add_argument("--activation", type=str, default="tanh", help="MLP hidden activation (tanh/relu/sine/...)")
-    p.add_argument("--out-act", type=str, default=None, help="optional output activation (e.g., tanh)")
+    p.add_argument(
+        "--hidden", type=int, nargs="+", default=[64, 64, 64], help="hidden layer sizes"
+    )
+    p.add_argument(
+        "--activation",
+        type=str,
+        default="tanh",
+        help="MLP hidden activation (tanh/relu/sine/...)",
+    )
+    p.add_argument(
+        "--out-act", type=str, default=None, help="optional output activation (e.g., tanh)"
+    )
 
     # grid/domain
     p.add_argument("--nx", type=int, default=128)
@@ -151,7 +162,9 @@ def _parse() -> Args:
     p.add_argument("--stl-weight", type=float, default=0.0)
     p.add_argument("--stl-u-max", type=float, default=1.0)
     p.add_argument("--stl-temp", type=float, default=0.1)
-    p.add_argument("--stl-spatial", type=str, default="mean", choices=["mean", "softmax", "amax"])
+    p.add_argument(
+        "--stl-spatial", type=str, default="mean", choices=["mean", "softmax", "amax"]
+    )
     p.add_argument("--stl-every", type=int, default=1)
     p.add_argument("--stl-nx", type=int, default=64)
     p.add_argument("--stl-nt", type=int, default=64)
@@ -172,17 +185,46 @@ def _parse() -> Args:
 
     a = p.parse_args()
     return Args(
-        hidden=tuple(a.hidden), activation=a.activation, out_act=a.out_act,
-        nx=a.nx, nt=a.nt, x_min=a.x_min, x_max=a.x_max, t_min=a.t_min, t_max=a.t_max,
-        lr=a.lr, epochs=a.epochs, batch=a.batch, opt=a.opt, weight_decay=a.weight_decay,
-        sched=a.sched, grad_clip=a.grad_clip,
-        alpha=a.alpha, n_boundary=a.n_boundary, n_initial=a.n_initial, sample_method=a.sample_method,
-        w_boundary=a.w_boundary, w_initial=a.w_initial,
-        stl_use=bool(a.stl_use), stl_weight=a.stl_weight, stl_u_max=a.stl_u_max, stl_temp=a.stl_temp,
-        stl_spatial=a.stl_spatial, stl_every=max(1, int(a.stl_every)), stl_nx=a.stl_nx, stl_nt=a.stl_nt,
-        device=a.device, dtype=a.dtype, amp=bool(a.amp), compile=bool(a.compile),
-        seed=a.seed, print_every=a.print_every,
-        results_dir=a.results_dir, tag=a.tag, save_ckpt=bool(a.save_ckpt), resume=a.resume,
+        hidden=tuple(a.hidden),
+        activation=a.activation,
+        out_act=a.out_act,
+        nx=a.nx,
+        nt=a.nt,
+        x_min=a.x_min,
+        x_max=a.x_max,
+        t_min=a.t_min,
+        t_max=a.t_max,
+        lr=a.lr,
+        epochs=a.epochs,
+        batch=a.batch,
+        opt=a.opt,
+        weight_decay=a.weight_decay,
+        sched=a.sched,
+        grad_clip=a.grad_clip,
+        alpha=a.alpha,
+        n_boundary=a.n_boundary,
+        n_initial=a.n_initial,
+        sample_method=a.sample_method,
+        w_boundary=a.w_boundary,
+        w_initial=a.w_initial,
+        stl_use=bool(a.stl_use),
+        stl_weight=a.stl_weight,
+        stl_u_max=a.stl_u_max,
+        stl_temp=a.stl_temp,
+        stl_spatial=a.stl_spatial,
+        stl_every=max(1, int(a.stl_every)),
+        stl_nx=a.stl_nx,
+        stl_nt=a.stl_nt,
+        device=a.device,
+        dtype=a.dtype,
+        amp=bool(a.amp),
+        compile=bool(a.compile),
+        seed=a.seed,
+        print_every=a.print_every,
+        results_dir=a.results_dir,
+        tag=a.tag,
+        save_ckpt=bool(a.save_ckpt),
+        resume=a.resume,
     )
 
 
@@ -199,23 +241,36 @@ def main() -> None:
 
     # Grid for training and coarse grid for STL monitoring
     X, T, XT = grid1d(
-        n_x=cfg.nx, n_t=cfg.nt,
-        x_min=cfg.x_min, x_max=cfg.x_max,
-        t_min=cfg.t_min, t_max=cfg.t_max,
-        device=device, dtype=getattr(torch, cfg.dtype)
+        n_x=cfg.nx,
+        n_t=cfg.nt,
+        x_min=cfg.x_min,
+        x_max=cfg.x_max,
+        t_min=cfg.t_min,
+        t_max=cfg.t_max,
+        device=device,
+        dtype=getattr(torch, cfg.dtype),
     )
     Xs, Ts, XTs = grid1d(
-        n_x=max(8, int(cfg.stl_nx)), n_t=max(4, int(cfg.stl_nt)),
-        x_min=cfg.x_min, x_max=cfg.x_max,
-        t_min=cfg.t_min, t_max=cfg.t_max,
-        device=device, dtype=getattr(torch, cfg.dtype)
+        n_x=max(8, int(cfg.stl_nx)),
+        n_t=max(4, int(cfg.stl_nt)),
+        x_min=cfg.x_min,
+        x_max=cfg.x_max,
+        t_min=cfg.t_min,
+        t_max=cfg.t_max,
+        device=device,
+        dtype=getattr(torch, cfg.dtype),
     )
 
     # Model
     model = MLP(
-        in_dim=2, out_dim=1, hidden=cfg.hidden, activation=cfg.activation,
-        out_activation=cfg.out_act, last_layer_scale=0.01,
-        device=device, dtype=getattr(torch, cfg.dtype),
+        in_dim=2,
+        out_dim=1,
+        hidden=cfg.hidden,
+        activation=cfg.activation,
+        out_activation=cfg.out_act,
+        last_layer_scale=0.01,
+        device=device,
+        dtype=getattr(torch, cfg.dtype),
     )
     model = _maybe_compile(model, cfg.compile)
 
@@ -226,8 +281,13 @@ def main() -> None:
         opt = optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     if cfg.sched == "onecycle":
         sched = optim.lr_scheduler.OneCycleLR(
-            opt, max_lr=float(cfg.lr), total_steps=int(cfg.epochs),
-            pct_start=0.1, anneal_strategy="cos", div_factor=25.0, final_div_factor=1e4
+            opt,
+            max_lr=float(cfg.lr),
+            total_steps=int(cfg.epochs),
+            pct_start=0.1,
+            anneal_strategy="cos",
+            div_factor=25.0,
+            final_div_factor=1e4,
         )
     elif cfg.sched == "cosine":
         sched = optim.lr_scheduler.CosineAnnealingLR(opt, T_max=int(cfg.epochs))
@@ -235,7 +295,7 @@ def main() -> None:
         sched = None
 
     # AMP scaler
-    use_autocast = (cfg.amp and device.type == "cuda")
+    use_autocast = cfg.amp and device.type == "cuda"
     scaler = torch.cuda.amp.GradScaler(enabled=use_autocast)
 
     # Optional STL penalty
@@ -263,9 +323,13 @@ def main() -> None:
         # Interior collocation points
         coords = sample_interior_1d(
             int(cfg.batch),
-            x_min=cfg.x_min, x_max=cfg.x_max,
-            t_min=cfg.t_min, t_max=cfg.t_max,
-            method=cfg.sample_method, device=device, dtype=getattr(torch, cfg.dtype),
+            x_min=cfg.x_min,
+            x_max=cfg.x_max,
+            t_min=cfg.t_min,
+            t_max=cfg.t_max,
+            method=cfg.sample_method,
+            device=device,
+            dtype=getattr(torch, cfg.dtype),
             seed=int(cfg.seed) + epoch,
         )
         coords.requires_grad_(True)
@@ -276,10 +340,19 @@ def main() -> None:
 
             # Soft BC/IC penalties (new samples every epoch)
             loss_bcic = boundary_loss(
-                model, x_left=cfg.x_min, x_right=cfg.x_max, t_min=cfg.t_min, t_max=cfg.t_max,
-                device=device, dtype=getattr(torch, cfg.dtype), method=cfg.sample_method,
-                n_boundary=cfg.n_boundary, n_initial=cfg.n_initial, seed=int(cfg.seed) + 13 * epoch,
-                w_boundary=cfg.w_boundary, w_initial=cfg.w_initial,
+                model,
+                x_left=cfg.x_min,
+                x_right=cfg.x_max,
+                t_min=cfg.t_min,
+                t_max=cfg.t_max,
+                device=device,
+                dtype=getattr(torch, cfg.dtype),
+                method=cfg.sample_method,
+                n_boundary=cfg.n_boundary,
+                n_initial=cfg.n_initial,
+                seed=int(cfg.seed) + 13 * epoch,
+                w_boundary=cfg.w_boundary,
+                w_initial=cfg.w_initial,
             )
 
             # STL robustness: G_t ( reduce_x u(x,t) <= u_max )
@@ -315,11 +388,25 @@ def main() -> None:
 
         # Logging/print
         lr_now = opt.param_groups[0]["lr"]
-        log.append([epoch, lr_now, float(loss), float(loss_pde), float(loss_bcic), float(loss_stl), float(rob)])
+        log.append(
+            [
+                epoch,
+                lr_now,
+                float(loss),
+                float(loss_pde),
+                float(loss_bcic),
+                float(loss_stl),
+                float(rob),
+            ]
+        )
         if (epoch % max(1, int(cfg.print_every)) == 0) or (epoch == int(cfg.epochs) - 1):
             print(
-                f"[diffusion1d] epoch={epoch:04d} lr={lr_now:.2e} "
-                f"loss={float(loss):.4e} pde={float(loss_pde):.4e} bcic={float(loss_bcic):.4e} stl={float(loss_stl):.4e}"
+                "[diffusion1d] "
+                f"epoch={epoch:04d} lr={lr_now:.2e} "
+                f"loss={float(loss):.4e} "
+                f"pde={float(loss_pde):.4e} "
+                f"bcic={float(loss_bcic):.4e} "
+                f"stl={float(loss_stl):.4e}"
             )
 
     # --- artifacts ------------------------------------------------------------
@@ -338,15 +425,21 @@ def main() -> None:
     field_path = results_dir / f"diffusion1d_{cfg.tag}_field.pt"
     torch.save(
         {
-            "u": U, "X": X_cpu, "T": T_cpu,
-            "u_max": float(cfg.stl_u_max), "alpha": float(cfg.alpha),
+            "u": U,
+            "X": X_cpu,
+            "T": T_cpu,
+            "u_max": float(cfg.stl_u_max),
+            "alpha": float(cfg.alpha),
             "config": vars(cfg),
         },
         field_path,
     )
     saved.append(str(field_path))
 
-    print(f"[diffusion1d] done → {field_path} (and {len(saved)-1} other artifact(s))")
+    print(
+        f"[diffusion1d] done → {field_path} "
+        f"(and {len(saved) - 1} other artifact(s))"
+    )
 
 
 if __name__ == "__main__":
