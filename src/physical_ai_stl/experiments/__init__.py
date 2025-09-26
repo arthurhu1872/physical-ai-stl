@@ -1,3 +1,5 @@
+# ruff: noqa: I001
+# isort: skip_file
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
