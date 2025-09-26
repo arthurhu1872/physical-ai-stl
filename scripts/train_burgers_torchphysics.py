@@ -1,3 +1,4 @@
+# scripts/train_burgers_torchphysics.py
 from __future__ import annotations
 
 import argparse
