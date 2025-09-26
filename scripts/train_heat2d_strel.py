@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import math
-import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from collections.abc import Callable
 
 import numpy as np
 
@@ -36,7 +34,7 @@ def _seed_everything(seed: int = 1337) -> None:
         torch.backends.cudnn.deterministic = True  # type: ignore[attr-defined]
 
 
-def _device(requested: Optional[str] = None) -> str:
+def _device(requested: str | None = None) -> str:
     if torch is None:  # pragma: no cover
         return "cpu"
     if requested:
@@ -44,12 +42,12 @@ def _device(requested: Optional[str] = None) -> str:
     return "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def _chunked_forward(model: "nn.Module", coords: "torch.Tensor", chunk: int = 65536) -> "torch.Tensor":
+def _chunked_forward(model: nn.Module, coords: torch.Tensor, chunk: int = 65536) -> torch.Tensor:
     if coords.shape[0] <= chunk:
         return model(coords)
     outs = []
     for i in range(0, coords.shape[0], chunk):
-        outs.append(model(coords[i:i+chunk]))
+        outs.append(model(coords[i:i + chunk]))
     return torch.cat(outs, dim=0)
 
 
@@ -63,15 +61,15 @@ class MLP(nn.Module):  # type: ignore[misc]
         self,
         in_dim: int = 3,
         out_dim: int = 1,
-        hidden: Tuple[int, ...] = (64, 64, 64),
-        activation: Optional[nn.Module] = None,
+        hidden: tuple[int, ...] = (64, 64, 64),
+        activation: nn.Module | None = None,
         last_layer_scale: float = 0.1,
     ) -> None:
         super().__init__()
         if activation is None:
             activation = nn.Tanh()  # good default for PINNs
 
-        layers = []
+        layers: list[nn.Module] = []
         prev = in_dim
         for h in hidden:
             layers.append(nn.Linear(prev, h))
@@ -95,11 +93,11 @@ class MLP(nn.Module):  # type: ignore[misc]
         last = [m for m in self.net if isinstance(m, nn.Linear)][-1]
         last.weight.data.mul_(last_layer_scale)
 
-    def forward(self, x: "torch.Tensor") -> "torch.Tensor":  # (N, in_dim) -> (N, out_dim)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:  # (N, in_dim) -> (N, out_dim)
         return self.net(x)
 
 
-def _fresh_activation(proto: "nn.Module") -> "nn.Module":
+def _fresh_activation(proto: nn.Module) -> nn.Module:
     # Return a fresh instance of the given activation prototype.
     cls = proto.__class__
     try:
@@ -121,7 +119,7 @@ class SquareDomain:
     t_min: float = 0.0
     t_max: float = 1.0
 
-    def sample_interior(self, n: int, sobol: bool = True, device: str = "cpu") -> "torch.Tensor":
+    def sample_interior(self, n: int, sobol: bool = True, device: str = "cpu") -> torch.Tensor:
         if torch is None:  # pragma: no cover
             raise RuntimeError("PyTorch is required for training.")
         if sobol:
@@ -136,17 +134,23 @@ class SquareDomain:
         out = torch.cat([x, y, t], dim=1)
         return out.to(device)
 
-    def sample_boundary(self, n: int, device: str = "cpu") -> "torch.Tensor":
+    def sample_boundary(self, n: int, device: str = "cpu") -> torch.Tensor:
         if torch is None:  # pragma: no cover
             raise RuntimeError("PyTorch is required for training.")
         # choose one of 4 sides uniformly
         side = torch.randint(0, 4, (n, 1))
         u = torch.rand(n, 2)  # for the two free coordinates
         # map to coordinates depending on side
-        x = torch.where(side == 0, torch.full((n, 1), self.x_min),  # x=0 edge
-                        torch.where(side == 1, torch.full((n, 1), self.x_max), torch.nan))  # x=1
-        y = torch.where(side == 2, torch.full((n, 1), self.y_min),  # y=0
-                        torch.where(side == 3, torch.full((n, 1), self.y_max), torch.nan))  # y=1
+        x = torch.where(
+            side == 0,
+            torch.full((n, 1), self.x_min),  # x=0 edge
+            torch.where(side == 1, torch.full((n, 1), self.x_max), torch.nan),  # x=1
+        )
+        y = torch.where(
+            side == 2,
+            torch.full((n, 1), self.y_min),  # y=0
+            torch.where(side == 3, torch.full((n, 1), self.y_max), torch.nan),  # y=1
+        )
         # fill NaNs with random values in the interior for the free coordinate(s)
         x = torch.where(torch.isnan(x), self.x_min + (self.x_max - self.x_min) * u[:, 0:1], x)
         y = torch.where(torch.isnan(y), self.y_min + (self.y_max - self.y_min) * u[:, 1:2], y)
@@ -154,7 +158,7 @@ class SquareDomain:
         out = torch.cat([x, y, t], dim=1)
         return out.to(device)
 
-    def sample_initial(self, n: int, device: str = "cpu") -> "torch.Tensor":
+    def sample_initial(self, n: int, device: str = "cpu") -> torch.Tensor:
         if torch is None:  # pragma: no cover
             raise RuntimeError("PyTorch is required for training.")
         x = self.x_min + (self.x_max - self.x_min) * torch.rand(n, 1)
@@ -163,12 +167,18 @@ class SquareDomain:
         return torch.cat([x, y, t], dim=1).to(device)
 
 
-def gaussian_ic(x: "torch.Tensor", y: "torch.Tensor", cx: float = 0.5, cy: float = 0.5, sigma: float = 0.08) -> "torch.Tensor":
+def gaussian_ic(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    cx: float = 0.5,
+    cy: float = 0.5,
+    sigma: float = 0.08,
+) -> torch.Tensor:
     r2 = (x - cx) ** 2 + (y - cy) ** 2
     return torch.exp(-r2 / (2.0 * sigma ** 2))
 
 
-def heat_residual(model: "nn.Module", coords: "torch.Tensor", alpha: float = 0.1) -> "torch.Tensor":
+def heat_residual(model: nn.Module, coords: torch.Tensor, alpha: float = 0.1) -> torch.Tensor:
     coords.requires_grad_(True)
     u = model(coords)  # (N,1)
     # first derivatives
@@ -183,12 +193,16 @@ def heat_residual(model: "nn.Module", coords: "torch.Tensor", alpha: float = 0.1
     return r
 
 
-def boundary_dirichlet_loss(model: "nn.Module", coords: "torch.Tensor", value: float = 0.0) -> "torch.Tensor":
+def boundary_dirichlet_loss(model: nn.Module, coords: torch.Tensor, value: float = 0.0) -> torch.Tensor:
     u = model(coords)
     return torch.mean((u - value) ** 2)
 
 
-def initial_condition_loss(model: "nn.Module", coords: "torch.Tensor", ic_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]) -> "torch.Tensor":
+def initial_condition_loss(
+    model: nn.Module,
+    coords: torch.Tensor,
+    ic_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
+) -> torch.Tensor:
     x, y = coords[:, 0:1], coords[:, 1:2]
     target = ic_fn(x, y).detach()
     pred = model(coords)
@@ -199,7 +213,15 @@ def initial_condition_loss(model: "nn.Module", coords: "torch.Tensor", ic_fn: Ca
 # Evaluation / MoonLight helpers
 # --------------------------------------------------------------------------------------
 
-def eval_on_grid(model: "nn.Module", nx: int, ny: int, nt: int, device: str = "cpu", t_min: float = 0.0, t_max: float = 1.0) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def eval_on_grid(
+    model: nn.Module,
+    nx: int,
+    ny: int,
+    nt: int,
+    device: str = "cpu",
+    t_min: float = 0.0,
+    t_max: float = 1.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if torch is None:  # pragma: no cover
         raise RuntimeError("PyTorch is required for evaluation.")
     model.eval()
@@ -208,19 +230,31 @@ def eval_on_grid(model: "nn.Module", nx: int, ny: int, nt: int, device: str = "c
         ys = torch.linspace(0.0, 1.0, ny, device=device).view(-1, 1)
         ts = torch.linspace(t_min, t_max, nt, device=device).view(-1, 1)
         # Build full set of (x,y,t) points in a streaming fashion over time to limit memory.
-        u_frames = []
+        u_frames: list[torch.Tensor] = []
         for k in range(nt):
             t = ts[k].expand(nx * ny, 1)
             x = xs.repeat_interleave(ny, dim=0)
             y = ys.repeat(nx, 1)
             coords = torch.cat([x, y, t], dim=1)
-            vals = _chunked_forward(model, coords, chunk=nx*ny).view(nx, ny, 1)  # (nx,ny,1)
+            vals = _chunked_forward(model, coords, chunk=nx * ny).view(nx, ny, 1)  # (nx,ny,1)
             u_frames.append(vals.cpu())
         u = torch.cat(u_frames, dim=2).numpy().astype(np.float32)
-        return u, xs.squeeze(1).cpu().numpy(), ys.squeeze(1).cpu().numpy(), ts.squeeze(1).cpu().numpy()
+        return (
+            u,
+            xs.squeeze(1).cpu().numpy(),
+            ys.squeeze(1).cpu().numpy(),
+            ts.squeeze(1).cpu().numpy(),
+        )
 
 
-def try_moonlight_audit(u: np.ndarray, nx: int, ny: int, mls_path: Path, formula: str = "contain", threshold: Optional[float] = None) -> None:
+def try_moonlight_audit(
+    u: np.ndarray,
+    nx: int,
+    ny: int,
+    mls_path: Path,
+    formula: str = "contain",
+    threshold: float | None = None,
+) -> None:
     # lazy import
     try:
         from physical_ai_stl.monitoring.moonlight_helper import (  # type: ignore
@@ -245,7 +279,10 @@ def try_moonlight_audit(u: np.ndarray, nx: int, ny: int, mls_path: Path, formula
         out = mon.monitor_graph_time_series(graph, sig)  # type: ignore[attr-defined]
         out_arr = np.array(out, dtype=float)
         print(f"[MoonLight] monitor '{formula}' – first 5 values: {np.round(out_arr[:5], 4)}")
-        print(f"[MoonLight] summary – min={out_arr.min():.4f}, mean={out_arr.mean():.4f}, max={out_arr.max():.4f}")
+        print(
+            f"[MoonLight] summary – "
+            f"min={out_arr.min():.4f}, mean={out_arr.mean():.4f}, max={out_arr.max():.4f}"
+        )
     except Exception as exc:  # pragma: no cover
         print(f"[MoonLight] Skipping audit (monitor failed): {exc}")
 
@@ -264,7 +301,7 @@ class TrainConfig:
     n_initial: int = 1024
     sobol: bool = True
     # model/opt
-    hidden: Tuple[int, ...] = (64, 64, 64)
+    hidden: tuple[int, ...] = (64, 64, 64)
     lr: float = 3e-3
     epochs: int = 200
     w_pde: float = 1.0
@@ -276,7 +313,7 @@ class TrainConfig:
     nt: int = 33
     # misc
     seed: int = 1337
-    device: Optional[str] = None
+    device: str | None = None
 
 
 def train_heat2d(cfg: TrainConfig, out_dir: Path, audit: bool, mls: Path) -> Path:
@@ -291,13 +328,17 @@ def train_heat2d(cfg: TrainConfig, out_dir: Path, audit: bool, mls: Path) -> Pat
     opt = torch.optim.Adam(model.parameters(), lr=cfg.lr)
 
     dom = SquareDomain()
-    ic_fn = lambda x, y: gaussian_ic(x, y, cx=0.5, cy=0.5, sigma=0.08)
+
+    def ic_fn(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        return gaussian_ic(x, y, cx=0.5, cy=0.5, sigma=0.08)
 
     # Light progress meter without hard dependency on tqdm
     try:
         from tqdm.auto import trange  # type: ignore
     except Exception:  # pragma: no cover
-        trange = lambda n, **kw: range(n)  # type: ignore
+
+        def trange(n: int, **kw: object) -> range:  # type: ignore
+            return range(n)
 
     for step in trange(cfg.epochs, desc="train", leave=False):
         model.train()
@@ -321,14 +362,23 @@ def train_heat2d(cfg: TrainConfig, out_dir: Path, audit: bool, mls: Path) -> Pat
         opt.step()
 
         if (step + 1) % max(1, cfg.epochs // 10) == 0 or step == 0:
-            print(f"[{step+1:04d}/{cfg.epochs}] loss={float(loss):.4e}  "
-                  f"(pde={float(loss_pde):.3e}, bc={float(loss_bc):.3e}, ic={float(loss_ic):.3e})")
+            print(
+                f"[{step + 1:04d}/{cfg.epochs}] loss={float(loss):.4e}  "
+                f"(pde={float(loss_pde):.3e}, bc={float(loss_bc):.3e}, ic={float(loss_ic):.3e})"
+            )
 
     # Evaluate on a structured grid and save artifact
     u, xs, ys, ts = eval_on_grid(model, cfg.nx, cfg.ny, cfg.nt, device=device)
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "heat2d_run.npz"
-    np.savez_compressed(out_path, u=u, x=xs, y=ys, t=ts, alpha=np.array(cfg.alpha, dtype=np.float32))
+    np.savez_compressed(
+        out_path,
+        u=u,
+        x=xs,
+        y=ys,
+        t=ts,
+        alpha=np.array(cfg.alpha, dtype=np.float32),
+    )
     print(f"[save] wrote {out_path}  (u shape = {u.shape}, dtype = {u.dtype})")
 
     if audit:
@@ -342,12 +392,22 @@ def train_heat2d(cfg: TrainConfig, out_dir: Path, audit: bool, mls: Path) -> Pat
 # --------------------------------------------------------------------------------------
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Train a 2‑D heat‑equation PINN and optionally audit with MoonLight STREL.")
+    ap = argparse.ArgumentParser(
+        description=(
+            "Train a 2‑D heat‑equation PINN and optionally audit with MoonLight STREL."
+        )
+    )
     # training
     ap.add_argument("--epochs", type=int, default=200, help="Training steps (default: 200).")
     ap.add_argument("--alpha", type=float, default=0.1, help="Diffusivity alpha (default: 0.1).")
     ap.add_argument("--lr", type=float, default=3e-3, help="Learning rate (default: 3e-3).")
-    ap.add_argument("--hidden", type=int, nargs="+", default=(64, 64, 64), help="Hidden widths, e.g. --hidden 64 64 64.")
+    ap.add_argument(
+        "--hidden",
+        type=int,
+        nargs="+",
+        default=(64, 64, 64),
+        help="Hidden widths, e.g. --hidden 64 64 64.",
+    )
     ap.add_argument("--n-interior", type=int, default=4096, help="Interior collocation points per epoch.")
     ap.add_argument("--n-boundary", type=int, default=1024, help="Boundary points per epoch.")
     ap.add_argument("--n-initial", type=int, default=1024, help="Initial condition points per epoch.")
@@ -358,7 +418,12 @@ def main() -> None:
     ap.add_argument("--nt", type=int, default=33)
     # audit
     ap.add_argument("--audit", action="store_true", help="Run MoonLight STREL audit after training.")
-    ap.add_argument("--mls", type=Path, default=Path("scripts/specs/contain_hotspot.mls"), help="Path to .mls script.")
+    ap.add_argument(
+        "--mls",
+        type=Path,
+        default=Path("scripts/specs/contain_hotspot.mls"),
+        help="Path to .mls script.",
+    )
     # misc
     ap.add_argument("--seed", type=int, default=1337)
     ap.add_argument("--device", type=str, default=None, help="torch device (default: auto).")
@@ -385,7 +450,11 @@ def main() -> None:
     # Ensure default spec exists (convenience for fresh clones)
     if args.audit and not args.mls.exists():
         args.mls.parent.mkdir(parents=True, exist_ok=True)
-        args.mls.write_text("signal { bool hot; }\ndomain boolean;\nformula contain = eventually (!(somewhere (hot)));\n")
+        args.mls.write_text(
+            "signal { bool hot; }\n"
+            "domain boolean;\n"
+            "formula contain = eventually (!(somewhere (hot)));\n"
+        )
         print(f"[spec] created default MoonLight spec at {args.mls}")
 
     _ = train_heat2d(cfg, out_dir=args.out, audit=bool(args.audit), mls=args.mls)
