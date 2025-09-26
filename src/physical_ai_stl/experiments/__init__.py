@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from importlib import import_module as _import_module, util as _import_util
+from importlib import import_module as _import_module
+from importlib import util as _import_util
 from typing import Any, Protocol, TYPE_CHECKING
 
 # ---------------------------------------------------------------------------
@@ -171,7 +172,9 @@ def __dir__() -> list[str]:  # pragma: no cover - tiny shim
 # ---------------------------------------------------------------------------
 
 if TYPE_CHECKING:  # pragma: no cover
-    from . import diffusion1d as diffusion1d
-    from . import heat2d as heat2d
-    from .diffusion1d import Diffusion1DConfig, run_diffusion1d
-    from .heat2d import Heat2DConfig, run_heat2d
+    from . import diffusion1d as diffusion1d  # noqa: F401
+    from . import heat2d as heat2d  # noqa: F401
+    from .diffusion1d import Diffusion1DConfig as Diffusion1DConfig  # noqa: F401
+    from .diffusion1d import run_diffusion1d as run_diffusion1d  # noqa: F401
+    from .heat2d import Heat2DConfig as Heat2DConfig  # noqa: F401
+    from .heat2d import run_heat2d as run_heat2d  # noqa: F401
