@@ -1,3 +1,5 @@
+# ruff: noqa: I001
+# isort: skip_file
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -5,7 +7,6 @@ from importlib import import_module
 from importlib import metadata as _metadata
 from importlib import util as _import_util
 from typing import Any, TYPE_CHECKING
-
 
 __all__ = [
     "__version__",
