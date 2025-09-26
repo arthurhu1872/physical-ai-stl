@@ -1,148 +1,180 @@
-# ruff: noqa: I001
-# isort: skip_file
 from __future__ import annotations
 
-from collections.abc import Mapping
-from importlib import import_module
-from importlib import metadata as _metadata
+from collections.abc import Callable, Mapping
+from importlib import import_module as _import_module
 from importlib import util as _import_util
-from typing import Any, TYPE_CHECKING
+from typing import Any, Protocol, TYPE_CHECKING
 
-__all__ = [
-    "__version__",
-    # Lazy subpackages/modules
-    "datasets",
-    "experiments",
-    "frameworks",
-    "models",
-    "monitoring",
-    "monitors",
-    "physics",
-    "training",
-    "utils",
-    "pde_example",
-    # Small re‑exports
-    "seed_everything",
-    "CSVLogger",
-    # Helpers
-    "about",
-    "optional_dependencies",
-]
+# ---------------------------------------------------------------------------
+# Public surface (declared up front for tools/IDEs)
+# ---------------------------------------------------------------------------
 
-# NOTE: Keep this as a literal string for Hatch (pyproject.toml -> [tool.hatch.version])
-# to source the package version directly from this file.
-__version__ = "0.1.0"
+# Submodules exposed directly (lazy)
+__all__ = ['diffusion1d', 'heat2d']
 
-# ----- Lazy access to subpackages (PEP 562) ---------------------------------
+# Extra conveniences (available via attribute access; not listed in __all__ to
+# keep ``from physical_ai_stl.experiments import *`` focused on submodules).
+# IDEs will still see these thanks to the TYPE_CHECKING block at the bottom.
+# - names()      : list available experiment keys
+# - available()  : quick availability probe
+# - get_runner() : fetch the callable for a key
+# - run()        : dispatch by key
+# - register()   : add a new entry at runtime
+# - about()      : compact human‑readable summary
 
-# Map attribute name -> fully qualified module path
-_SUBMODULES: Mapping[str, str] = {
-    "datasets": "physical_ai_stl.datasets",
-    "experiments": "physical_ai_stl.experiments",
-    "frameworks": "physical_ai_stl.frameworks",  # namespace package (no heavy import)
-    "models": "physical_ai_stl.models",
-    "monitoring": "physical_ai_stl.monitoring",
-    "monitors": "physical_ai_stl.monitors",
-    "physics": "physical_ai_stl.physics",
-    "training": "physical_ai_stl.training",
-    "utils": "physical_ai_stl.utils",
-    "pde_example": "physical_ai_stl.pde_example",
+# ---------------------------------------------------------------------------
+# Registry (name → "module:function")
+# ---------------------------------------------------------------------------
+
+_EXPERIMENTS: dict[str, str | Callable[..., Any]] = {
+    'diffusion1d': 'physical_ai_stl.experiments.diffusion1d:run_diffusion1d',
+    'heat2d':      'physical_ai_stl.experiments.heat2d:run_heat2d',
 }
 
-# Lightweight helpers (attribute -> "module:object")
-_HELPERS: Mapping[str, str] = {
-    "seed_everything": "physical_ai_stl.utils.seed:seed_everything",
-    "CSVLogger": "physical_ai_stl.utils.logger:CSVLogger",
+# One‑line blurbs for docs/printing without importing heavy modules
+_DOCS: dict[str, str] = {
+    'diffusion1d': '1‑D diffusion (heat) PINN with optional STL penalty.',
+    'heat2d':      '2‑D heat‑equation PINN with optional STL/STREL penalty.',
 }
 
+# Submodules that we expose attributes from on demand
+_LAZY_MODULES: dict[str, str] = {
+    'diffusion1d': 'physical_ai_stl.experiments.diffusion1d',
+    'heat2d':      'physical_ai_stl.experiments.heat2d',
+}
 
-def __getattr__(name: str) -> Any:  # pragma: no cover - tiny shim
-    if name in _SUBMODULES:
-        module = import_module(_SUBMODULES[name])
-        globals()[name] = module
-        return module
-    if name in _HELPERS:
-        mod_name, obj_name = _HELPERS[name].split(":")
-        obj = getattr(import_module(mod_name), obj_name)
-        globals()[name] = obj
-        return obj
-    raise AttributeError(f"module 'physical_ai_stl' has no attribute {name!r}")
-
-
-def __dir__() -> list[str]:  # pragma: no cover - tiny shim
-    return sorted(list(globals().keys()) + list(_SUBMODULES.keys()) + list(_HELPERS.keys()))
-
-
-# ----- Optional dependency inspection ---------------------------------------
-
-# Map "import name" -> distribution name on PyPI (for version lookups). When the
-# names match, we can use a single entry. If unknown, leave the dist empty.
-_OPT_DEPS: Mapping[str, str] = {
-    # Core scientific stack (often present)
-    "numpy": "numpy",
-    # Physics‑ML frameworks
-    "torch": "torch",
-    "neuromancer": "neuromancer",
-    "physicsnemo": "nvidia-physicsnemo",  # import name -> PyPI dist
-    "torchphysics": "torchphysics",
-    # STL / spatio‑temporal monitoring
-    "rtamt": "rtamt",
-    "moonlight": "moonlight",
-    "spatial_spec": "spatial-spec",
+# Forwarded names for nice imports like:
+#   from physical_ai_stl.experiments import run_diffusion1d
+_FORWARD_ATTRS: dict[str, tuple[str, str]] = {
+    'run_diffusion1d': ('diffusion1d', 'run_diffusion1d'),
+    'Diffusion1DConfig': ('diffusion1d', 'Diffusion1DConfig'),
+    'run_heat2d': ('heat2d', 'run_heat2d'),
+    'Heat2DConfig': ('heat2d', 'Heat2DConfig'),
 }
 
 
-def _probe_module(mod_name: str) -> tuple[bool, str | None]:
-    spec = _import_util.find_spec(mod_name)
-    if spec is None:
-        return False, None
-    dist_name = _OPT_DEPS.get(mod_name) or mod_name
-    version = None
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _has_torch() -> bool:
+    return _import_util.find_spec('torch') is not None
+
+
+def _import_with_friendly_error(mod_path: str):
     try:
-        version = _metadata.version(dist_name)  # type: ignore[arg-type]
-    except Exception:
+        return _import_module(mod_path)
+    except ImportError as e:  # pragma: no cover - tiny UX shim
+        msg = str(e).lower()
+        if 'torch' in msg or 'pytorch' in msg or (_import_util.find_spec('torch') is None):
+            raise ImportError(
+                "This experiment requires PyTorch. Install the optional extra:\n"
+                '    pip install "physical-ai-stl[torch]"\n'
+                "or use the provided requirements file:\n"
+                "    pip install -r requirements-extra.txt"
+            ) from e
+        raise
+
+
+def _split_target(target: str) -> tuple[str, str]:
+    if ':' not in target:
+        raise ValueError(f"Expected 'module:function' but got {target!r}.")
+    mod, func = target.split(':', 1)
+    return mod, func
+
+
+class Runner(Protocol):
+    def __call__(self, cfg: Mapping[str, Any] | dict[str, Any]) -> Any:  # pragma: no cover - typing only
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def names() -> list[str]:
+    return sorted(_EXPERIMENTS.keys())
+
+
+def available() -> dict[str, bool]:
+    has_torch = _has_torch()
+    return {name: has_torch for name in _EXPERIMENTS.keys()}
+
+
+def register(name: str, target: str | Callable[..., Any]) -> None:
+    _EXPERIMENTS[name] = target
+
+
+def get_runner(name: str) -> Runner:
+    key = name.lower().strip()
+    if key not in _EXPERIMENTS:
+        opts = ', '.join(sorted(_EXPERIMENTS))
+        raise KeyError(f"Unknown experiment {name!r}. Available: {opts}.")
+    target = _EXPERIMENTS[key]
+    if callable(target):
+        fn = target  # type: ignore[assignment]
+    else:
+        mod_path, func_name = _split_target(target)
+        mod = _import_with_friendly_error(mod_path)
         try:
-            mod = import_module(mod_name)
-            version = getattr(mod, "__version__", None)
-        except Exception:
-            version = None
-    return True, version
+            fn = getattr(mod, func_name)
+        except AttributeError as e:  # pragma: no cover - rare
+            raise AttributeError(f"Module {mod_path!r} has no attribute {func_name!r}.") from e
+    if not callable(fn):
+        raise TypeError(f"Registered target for {name!r} is not callable: {fn!r}")
+    return fn  # type: ignore[return-value]
 
 
-def optional_dependencies() -> dict[str, dict[str, str | bool | None]]:
-    report: dict[str, dict[str, str | bool | None]] = {}
-    for mod in _OPT_DEPS.keys():
-        ok, ver = _probe_module(mod)
-        report[mod] = {"available": ok, "version": ver}
-    return report
+def run(name: str, cfg: Mapping[str, Any] | dict[str, Any]) -> Any:
+    fn = get_runner(name)
+    return fn(cfg)
 
 
 def about() -> str:
-    lines = [f"physical_ai_stl {__version__}", "Optional deps:"]
-    report = optional_dependencies()
-    width = max((len(k) for k in report.keys()), default=0)
-    for name in sorted(report.keys()):
-        avail = report[name]["available"]
-        ver = report[name]["version"]
-        lines.append(f"  {name.ljust(width)}  {'yes' if avail else 'no ':<3} ({ver or '-'})")
+    width = max((len(n) for n in _EXPERIMENTS), default=0)
+    avail = available()
+    lines = ['experiments:',]
+    for n in names():
+        tag = 'yes' if avail.get(n, False) else 'no '
+        blurb = _DOCS.get(n, '')
+        lines.append(f"  {n.ljust(width)}  {tag}  {blurb}")
     return "\n".join(lines)
 
 
-# ----- Static imports for type checkers only --------------------------------
+# ---------------------------------------------------------------------------
+# Lazy attribute access (PEP 562)
+# ---------------------------------------------------------------------------
+
+def __getattr__(name: str) -> Any:  # pragma: no cover - tiny shim
+    if name in _LAZY_MODULES:
+        mod = _import_with_friendly_error(_LAZY_MODULES[name])
+        globals()[name] = mod
+        return mod
+    if name in _FORWARD_ATTRS:
+        mod_key, obj_name = _FORWARD_ATTRS[name]
+        mod = _import_with_friendly_error(_LAZY_MODULES[mod_key])
+        obj = getattr(mod, obj_name)
+        globals()[name] = obj
+        return obj
+    if name in {'names', 'available', 'get_runner', 'run', 'register', 'about'}:
+        return globals()[name]
+    raise AttributeError(f"module 'physical_ai_stl.experiments' has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:  # pragma: no cover - tiny shim
+    base = set(globals().keys())
+    return sorted(base | set(__all__) | set(_FORWARD_ATTRS.keys()) | set(_LAZY_MODULES.keys())
+                  | {'names', 'available', 'get_runner', 'run', 'register', 'about'})
+
+
+# ---------------------------------------------------------------------------
+# Static imports for type checkers only (avoid runtime import cost)
+# ---------------------------------------------------------------------------
 
 if TYPE_CHECKING:  # pragma: no cover
-    # These imports help IDEs and type checkers without paying runtime import cost.
-    from . import (  # noqa: F401
-        datasets,
-        experiments,
-        frameworks,
-        models,
-        monitoring,
-        monitors,
-        pde_example,
-        physics,
-        training,
-        utils,
-    )
-    from .utils.logger import CSVLogger as CSVLogger  # noqa: F401
-    from .utils.seed import seed_everything as seed_everything  # noqa: F401
+    from . import diffusion1d as diffusion1d  # noqa: F401
+    from . import heat2d as heat2d  # noqa: F401
+    from .diffusion1d import Diffusion1DConfig as Diffusion1DConfig  # noqa: F401
+    from .diffusion1d import run_diffusion1d as run_diffusion1d  # noqa: F401
+    from .heat2d import Heat2DConfig as Heat2DConfig  # noqa: F401
+    from .heat2d import run_heat2d as run_heat2d  # noqa: F401
