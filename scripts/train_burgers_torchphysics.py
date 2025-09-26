@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import argparse
-import math
-import sys
-import time
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
+import math
 from pathlib import Path
+import sys
+import time
 
 
 # ---------------------------------------------------------------------------
