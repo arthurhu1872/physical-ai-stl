@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from importlib import import_module, util as _import_util, metadata as _metadata
-from typing import Any, Mapping, TYPE_CHECKING
+from collections.abc import Mapping
+from importlib import import_module, metadata as _metadata, util as _import_util
+from typing import Any, TYPE_CHECKING
 
 __all__ = [
     "__version__",
@@ -127,7 +128,17 @@ def about() -> str:
 
 if TYPE_CHECKING:  # pragma: no cover
     # These imports help IDEs and type checkers without paying runtime import cost.
-    from . import datasets, experiments, frameworks, models, monitoring, monitors, physics, training, utils  # noqa: F401
-    from . import pde_example  # noqa: F401
+    from . import (  # noqa: F401
+        datasets,
+        experiments,
+        frameworks,
+        models,
+        monitoring,
+        monitors,
+        pde_example,
+        physics,
+        training,
+        utils,
+    )
     from .utils.logger import CSVLogger as CSVLogger  # noqa: F401
     from .utils.seed import seed_everything as seed_everything  # noqa: F401
