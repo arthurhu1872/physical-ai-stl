@@ -1,3 +1,4 @@
+# ruff: noqa: I001
 from __future__ import annotations
 
 from importlib import import_module, metadata as _metadata
