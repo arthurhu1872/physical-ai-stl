@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, List, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
@@ -11,7 +12,7 @@ _SCRIPT: str = (
 )
 
 
-def _to_list_floats(a: Sequence[float]) -> List[float]:
+def _to_list_floats(a: Sequence[float]) -> list[float]:
     # Converting via list() ensures types are native Python floats (not np.float64).
     return [float(v) for v in a]
 
@@ -20,7 +21,7 @@ def _monitor_with_best_effort(
     mon: Any, t: Sequence[float], x: Sequence[float], y: Sequence[float]
 ) -> np.ndarray:
     time_list = _to_list_floats(t)
-    sig_pairs: List[Tuple[float, float]] = list(zip(_to_list_floats(x), _to_list_floats(y)))
+    sig_pairs: list[tuple[float, float]] = list(zip(_to_list_floats(x), _to_list_floats(y)))
 
     try:
         # Preferred signature (documented on the MoonLight wiki)
