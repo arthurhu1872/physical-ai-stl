@@ -5,14 +5,16 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from torch import nn, optim, Tensor
+import torch.nn as nn
+import torch.optim as optim
 
 from ..models.mlp import MLP
+
 # STL soft semantics (optional)
 try:  # keep import lazy/optional to avoid heavyweight deps in minimal installs
     from ..monitoring.stl_soft import always, pred_leq, softmax, STLPenalty
     _HAS_STL = True
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     _HAS_STL = False
 
 from ..physics.diffusion1d import boundary_loss, residual_loss
@@ -99,7 +101,7 @@ def _maybe_compile(module: nn.Module, do_compile: bool) -> nn.Module:  # pragma:
     return module
 
 
-def _stl_spatial_reduce(u_xt: Tensor, mode: str = "mean", temp: float = 0.1) -> Tensor:
+def _stl_spatial_reduce(u_xt: torch.Tensor, mode: str = "mean", temp: float = 0.1) -> torch.Tensor:
     if mode == "mean":
         return u_xt.mean(dim=0)
     if mode == "softmax":
