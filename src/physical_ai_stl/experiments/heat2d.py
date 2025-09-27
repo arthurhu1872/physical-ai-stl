@@ -1,25 +1,24 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
-
-import math
-import os
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
 from torch import nn, optim
 
 from ..models.mlp import MLP
-from ..physics.heat2d import residual_heat2d, bc_ic_heat2d
+from ..physics.heat2d import bc_ic_heat2d, residual_heat2d
 from ..training.grids import grid2d
 from ..utils.logger import CSVLogger
 from ..utils.seed import seed_everything
 
 # STL soft semantics (optional, used if cfg.stl_use is True)
 try:
-    from ..monitoring.stl_soft import STLPenalty, pred_leq, always, softmin
+    from ..monitoring.stl_soft import always, pred_leq, softmin, STLPenalty
+
     _HAS_STL = True
 except Exception:  # pragma: no cover - optional dep inside package
     _HAS_STL = False
@@ -32,11 +31,12 @@ __all__ = ["Heat2DConfig", "run_heat2d"]
 # Configuration
 # --------------------------------------------------------------------------
 
+
 @dataclass
 class Heat2DConfig:
     # --- model ---
     hidden: tuple[int, ...] = (64, 64, 64)
-    activation: str = "tanh"           # 'tanh' | 'relu' | 'gelu' | 'sine' (SIREN) | ...
+    activation: str = "tanh"  # 'tanh' | 'relu' | 'gelu' | 'sine' (SIREN) | ...
 
     # --- grid / domain ---
     n_x: int = 64
@@ -55,28 +55,28 @@ class Heat2DConfig:
     batch: int = 4096
     weight_decay: float = 0.0
     amsgrad: bool = False
-    scheduler: str = "none"            # 'none' | 'cosine' | 'step'
-    step_size: int = 100               # for 'step'
-    gamma: float = 0.5                 # for 'step'
-    grad_clip: Optional[float] = None  # e.g., 1.0 to clip global grad norm
-    compile: bool = False              # try torch.compile if available
-    amp: bool = True                   # use autocast+GradScaler on CUDA
-    device: str = "auto"               # 'auto' | 'cpu' | 'cuda' | 'mps'
+    scheduler: str = "none"  # 'none' | 'cosine' | 'step'
+    step_size: int = 100  # for 'step'
+    gamma: float = 0.5  # for 'step'
+    grad_clip: float | None = None  # e.g., 1.0 to clip global grad norm
+    compile: bool = False  # try torch.compile if available
+    amp: bool = True  # use autocast+GradScaler on CUDA
+    device: str = "auto"  # 'auto' | 'cpu' | 'cuda' | 'mps'
 
     # --- physics ---
-    alpha: float = 0.1                 # diffusivity
-    bcic_weight: float = 1.0           # weight for BC/IC penalty
+    alpha: float = 0.1  # diffusivity
+    bcic_weight: float = 1.0  # weight for BC/IC penalty
 
     # --- residual‑aware resampling (RAR) ---
-    rar_pool: int = 0                  # if > 0, evaluate residual on this many pool points
-    rar_hard_frac: float = 0.5         # fraction of batch from top‑|r| points
-    rar_every: int = 10                # how often (epochs) to use RAR; 0 disables
+    rar_pool: int = 0  # if > 0, evaluate residual on this many pool points
+    rar_hard_frac: float = 0.5  # fraction of batch from top‑|r| points
+    rar_every: int = 10  # how often (epochs) to use RAR; 0 disables
 
     # --- STL penalty (soft, differentiable) ---
     stl_use: bool = False
     stl_weight: float = 0.0
-    stl_u_min: Optional[float] = None
-    stl_u_max: Optional[float] = None
+    stl_u_min: float | None = None
+    stl_u_max: float | None = None
     stl_margin: float = 0.0
     stl_beta: float = 10.0
     stl_temp: float = 0.1
@@ -84,12 +84,12 @@ class Heat2DConfig:
     stl_ny: int = 32
     stl_nt: int = 16
     stl_every: int = 10
-    stl_x_min: Optional[float] = None  # if None, uses [x_min,x_max]
-    stl_x_max: Optional[float] = None
-    stl_y_min: Optional[float] = None
-    stl_y_max: Optional[float] = None
-    stl_t_min: Optional[float] = None  # if None, uses [t_min,t_max]
-    stl_t_max: Optional[float] = None
+    stl_x_min: float | None = None  # if None, uses [x_min,x_max]
+    stl_x_max: float | None = None
+    stl_y_min: float | None = None
+    stl_y_max: float | None = None
+    stl_t_min: float | None = None  # if None, uses [t_min,t_max]
+    stl_t_max: float | None = None
 
     # --- output / logging ---
     results_dir: str = "results"
@@ -106,6 +106,7 @@ class Heat2DConfig:
 # Utilities
 # --------------------------------------------------------------------------
 
+
 def _select_device(name: str) -> torch.device:
     if name == "auto":
         if torch.cuda.is_available():
@@ -115,19 +116,22 @@ def _select_device(name: str) -> torch.device:
         return torch.device("cpu")
     return torch.device(name)
 
+
 def _maybe_compile(model: nn.Module, enabled: bool) -> nn.Module:
     if not enabled:
         return model
     compile_fn = getattr(torch, "compile", None)
-    if compile_fn is None:   # PyTorch < 2.0
+    if compile_fn is None:  # PyTorch < 2.0
         return model
     try:  # pragma: no cover - optional perf feature
         return compile_fn(model, mode="default")
     except Exception:
         return model
 
+
 def _ensure_dir(path: str | Path) -> None:
     Path(path).mkdir(parents=True, exist_ok=True)
+
 
 def _gradmag_numpy(u_2d: np.ndarray) -> np.ndarray:
     gx = np.zeros_like(u_2d)
@@ -135,6 +139,7 @@ def _gradmag_numpy(u_2d: np.ndarray) -> np.ndarray:
     gx[1:-1, :] = 0.5 * (u_2d[2:, :] - u_2d[:-2, :])
     gy[:, 1:-1] = 0.5 * (u_2d[:, 2:] - u_2d[:, :-2])
     return np.sqrt(gx * gx + gy * gy)
+
 
 def _stl_penalty(
     model: nn.Module,
@@ -155,9 +160,17 @@ def _stl_penalty(
     t1 = cfg.stl_t_max if cfg.stl_t_max is not None else cfg.t_max
 
     X, Y, T, XYT = grid2d(
-        n_x=cfg.stl_nx, n_y=cfg.stl_ny, n_t=cfg.stl_nt,
-        x_min=x0, x_max=x1, y_min=y0, y_max=y1, t_min=t0, t_max=t1,
-        device=device, dtype=dtype
+        n_x=cfg.stl_nx,
+        n_y=cfg.stl_ny,
+        n_t=cfg.stl_nt,
+        x_min=x0,
+        x_max=x1,
+        y_min=y0,
+        y_max=y1,
+        t_min=t0,
+        t_max=t1,
+        device=device,
+        dtype=dtype,
     )
     u = model(XYT).reshape(cfg.stl_nx * cfg.stl_ny, cfg.stl_nt)  # (Nxy, Nt)
 
@@ -178,16 +191,17 @@ def _stl_penalty(
     pen = STLPenalty(weight=cfg.stl_weight, margin=cfg.stl_margin, kind="softplus", beta=cfg.stl_beta)
     return pen(r_scalar)
 
+
 # --------------------------------------------------------------------------
 # Main entry point
 # --------------------------------------------------------------------------
+
 
 def run_heat2d(cfg_dict: dict[str, Any]) -> list[str]:
     # --- parse config dict robustly (with sensible defaults) ---------------
     cfg = Heat2DConfig(
         hidden=tuple(cfg_dict.get("model", {}).get("hidden", (64, 64, 64))),
         activation=str(cfg_dict.get("model", {}).get("activation", "tanh")),
-
         n_x=int(cfg_dict.get("grid", {}).get("n_x", 64)),
         n_y=int(cfg_dict.get("grid", {}).get("n_y", 64)),
         n_t=int(cfg_dict.get("grid", {}).get("n_t", 16)),
@@ -197,7 +211,6 @@ def run_heat2d(cfg_dict: dict[str, Any]) -> list[str]:
         y_max=float(cfg_dict.get("grid", {}).get("y_max", 1.0)),
         t_min=float(cfg_dict.get("grid", {}).get("t_min", 0.0)),
         t_max=float(cfg_dict.get("grid", {}).get("t_max", 1.0)),
-
         lr=float(cfg_dict.get("optim", {}).get("lr", 2e-3)),
         epochs=int(cfg_dict.get("optim", {}).get("epochs", 200)),
         batch=int(cfg_dict.get("optim", {}).get("batch", 4096)),
@@ -210,14 +223,11 @@ def run_heat2d(cfg_dict: dict[str, Any]) -> list[str]:
         compile=bool(cfg_dict.get("optim", {}).get("compile", False)),
         amp=bool(cfg_dict.get("optim", {}).get("amp", True)),
         device=str(cfg_dict.get("optim", {}).get("device", "auto")),
-
         alpha=float(cfg_dict.get("physics", {}).get("alpha", 0.1)),
         bcic_weight=float(cfg_dict.get("physics", {}).get("bcic_weight", 1.0)),
-
         rar_pool=int(cfg_dict.get("rar", {}).get("pool", 0)),
         rar_hard_frac=float(cfg_dict.get("rar", {}).get("hard_frac", 0.5)),
         rar_every=int(cfg_dict.get("rar", {}).get("every", 10)),
-
         stl_use=bool(cfg_dict.get("stl", {}).get("use", False)),
         stl_weight=float(cfg_dict.get("stl", {}).get("weight", 0.0)),
         stl_u_min=cfg_dict.get("stl", {}).get("u_min", None),
@@ -235,7 +245,6 @@ def run_heat2d(cfg_dict: dict[str, Any]) -> list[str]:
         stl_y_max=cfg_dict.get("stl", {}).get("y_max", None),
         stl_t_min=cfg_dict.get("stl", {}).get("t_min", None),
         stl_t_max=cfg_dict.get("stl", {}).get("t_max", None),
-
         results_dir=str(cfg_dict.get("io", {}).get("results_dir", "results")),
         tag=str(cfg_dict.get("tag", "run")),
         save_ckpt=bool(cfg_dict.get("io", {}).get("save_ckpt", True)),
@@ -253,9 +262,17 @@ def run_heat2d(cfg_dict: dict[str, Any]) -> list[str]:
 
     # Precompute dense grid for sampling & for frame export
     X, Y, T, XYT = grid2d(
-        n_x=cfg.n_x, n_y=cfg.n_y, n_t=cfg.n_t,
-        x_min=cfg.x_min, x_max=cfg.x_max, y_min=cfg.y_min, y_max=cfg.y_max,
-        t_min=cfg.t_min, t_max=cfg.t_max, device=device, dtype=dtype
+        n_x=cfg.n_x,
+        n_y=cfg.n_y,
+        n_t=cfg.n_t,
+        x_min=cfg.x_min,
+        x_max=cfg.x_max,
+        y_min=cfg.y_min,
+        y_max=cfg.y_max,
+        t_min=cfg.t_min,
+        t_max=cfg.t_max,
+        device=device,
+        dtype=dtype,
     )
 
     model = MLP(in_dim=3, out_dim=1, hidden=cfg.hidden, activation=cfg.activation).to(device)
@@ -311,9 +328,14 @@ def run_heat2d(cfg_dict: dict[str, Any]) -> list[str]:
 
             loss_bcic = bc_ic_heat2d(
                 model,
-                x_min=cfg.x_min, x_max=cfg.x_max, y_min=cfg.y_min, y_max=cfg.y_max,
-                t_min=cfg.t_min, t_max=cfg.t_max,
-                device=device, dtype=dtype,
+                x_min=cfg.x_min,
+                x_max=cfg.x_max,
+                y_min=cfg.y_min,
+                y_max=cfg.y_max,
+                t_min=cfg.t_min,
+                t_max=cfg.t_max,
+                device=device,
+                dtype=dtype,
             )
 
             # Optional STL penalty (computed every stl_every epochs to save time)
@@ -335,12 +357,16 @@ def run_heat2d(cfg_dict: dict[str, Any]) -> list[str]:
             sched.step()
 
         # Logging & progress
-        lr_now = next(iter(opt.param_groups))['lr']
+        lr_now = next(iter(opt.param_groups))["lr"]
         logger.append([epoch, float(lr_now), float(loss), float(loss_pde), float(loss_bcic), float(loss_stl)])
 
         if (epoch % max(1, cfg.print_every) == 0) or (epoch == cfg.epochs - 1):
-            # Lightweight print – avoids tqdm dependency
-            print(f"[heat2d] epoch={epoch:04d} lr={lr_now:.2e} loss={float(loss):.4e} pde={float(loss_pde):.4e} bcic={float(loss_bcic):.4e} stl={float(loss_stl):.4e}")
+            msg = (
+                f"[heat2d] epoch={epoch:04d} lr={lr_now:.2e} "
+                f"loss={float(loss):.4e} pde={float(loss_pde):.4e} "
+                f"bcic={float(loss_bcic):.4e} stl={float(loss_stl):.4e}"
+            )
+            print(msg)
 
     # --- artifacts ------------------------------------------------------------
     if cfg.save_ckpt:
@@ -354,11 +380,14 @@ def run_heat2d(cfg_dict: dict[str, Any]) -> list[str]:
                 k = int(raw_k)
                 k = max(0, min(k, cfg.n_t - 1))  # clamp
                 # Build input for the k‑th time slice
-                inp = torch.stack([
-                    X[:, :, k].reshape(-1),
-                    Y[:, :, k].reshape(-1),
-                    T[:, :, k].reshape(-1)
-                ], dim=-1).to(device)
+                inp = torch.stack(
+                    [
+                        X[:, :, k].reshape(-1),
+                        Y[:, :, k].reshape(-1),
+                        T[:, :, k].reshape(-1),
+                    ],
+                    dim=-1,
+                ).to(device)
                 u = model(inp).reshape(cfg.n_x, cfg.n_y).detach().cpu().numpy()
 
                 npy = Path(cfg.results_dir) / f"heat2d_{cfg.tag}_t{k}.npy"
@@ -367,11 +396,13 @@ def run_heat2d(cfg_dict: dict[str, Any]) -> list[str]:
 
                 if cfg.save_figs:
                     import matplotlib.pyplot as plt  # lazy import
+
                     gradmag = _gradmag_numpy(u)
                     plt.figure()
                     plt.imshow(gradmag.T, origin="lower", aspect="auto")  # transpose for (x,y) orientation
                     plt.colorbar(label="|∇u|")
-                    plt.xlabel("x‑index"); plt.ylabel("y‑index")
+                    plt.xlabel("x‑index")
+                    plt.ylabel("y‑index")
                     plt.title(f"2‑D Heat |∇u|, frame t[{k}]")
                     figp = Path(cfg.results_dir) / f"heat2d_{cfg.tag}_gradmag_t{k}.png"
                     plt.tight_layout()
