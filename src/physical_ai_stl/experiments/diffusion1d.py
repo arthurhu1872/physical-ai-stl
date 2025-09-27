@@ -5,22 +5,20 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from torch import Tensor, nn, optim
+from torch import nn, optim, Tensor
 
 from ..models.mlp import MLP
-from ..physics.diffusion1d import boundary_loss, residual_loss
-from ..training.grids import grid1d, sample_interior_1d
-from ..utils.logger import CSVLogger
-from ..utils.seed import seed_everything
-
 # STL soft semantics (optional)
 try:  # keep import lazy/optional to avoid heavyweight deps in minimal installs
     from ..monitoring.stl_soft import always, pred_leq, softmax, STLPenalty
-
     _HAS_STL = True
 except Exception:  # pragma: no cover
     _HAS_STL = False
 
+from ..physics.diffusion1d import boundary_loss, residual_loss
+from ..training.grids import grid1d, sample_interior_1d
+from ..utils.logger import CSVLogger
+from ..utils.seed import seed_everything
 
 __all__ = ["Diffusion1DConfig", "run_diffusion1d"]
 
