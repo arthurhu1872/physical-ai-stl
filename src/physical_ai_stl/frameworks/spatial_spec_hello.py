@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from importlib import import_module
-from importlib import metadata as _metadata
+from importlib import import_module, metadata as _metadata
 
 
 # Public constants for clarity in messages and for downstream tooling.
