@@ -1,8 +1,10 @@
+# ruff: noqa: I001
+
 from __future__ import annotations
 
 from collections.abc import Mapping
 from importlib import import_module, metadata as _metadata, util as _import_util
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 __all__ = [
     # Submodules (lazy)
