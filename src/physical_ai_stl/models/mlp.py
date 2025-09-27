@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Iterable, Sequence, Union
+from collections.abc import Callable, Iterable, Sequence
 
 import torch
 import torch.nn as nn
@@ -23,7 +23,8 @@ class Sine(nn.Module):
         return f"w0={self.w0:g}"
 
 
-ActivationArg = Union[str, nn.Module, Callable[[], nn.Module]]
+ActivationArg = str | nn.Module | Callable[[], nn.Module]
+
 
 def _normalize_activation(act: ActivationArg) -> Callable[[], nn.Module]:
     if isinstance(act, str):
