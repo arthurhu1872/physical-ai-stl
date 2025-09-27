@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from importlib import import_module as _import_module
-from importlib import util as _import_util
-from importlib import metadata as _metadata
-from typing import Any, Mapping, TYPE_CHECKING
+from collections.abc import Mapping
+from importlib import import_module as _import_module, metadata as _metadata, util as _import_util
+from typing import Any, TYPE_CHECKING
 
 # ----- Public surface (declared up front for tools/IDEs) ---------------------
 
@@ -99,6 +98,7 @@ _REEXPORTS: Mapping[str, str] = {
 
 # ----- Lightweight backend/dep probing --------------------------------------
 
+
 def _probe(mod_name: str) -> tuple[bool, str | None]:
     if _import_util.find_spec(mod_name) is None:
         return False, None
@@ -113,6 +113,7 @@ def _probe(mod_name: str) -> tuple[bool, str | None]:
             ver = None
     return True, ver
 
+
 def available_backends() -> dict[str, dict[str, bool | str | None]]:
     report: dict[str, dict[str, bool | str | None]] = {}
     for name in ("rtamt", "moonlight"):
@@ -121,6 +122,7 @@ def available_backends() -> dict[str, dict[str, bool | str | None]]:
     ok, ver = _probe("torch")
     report["soft"] = {"available": ok, "version": ver}
     return report
+
 
 def ensure(*backends: str) -> None:
     missing: list[str] = []
@@ -153,6 +155,7 @@ def ensure(*backends: str) -> None:
             msg.append(f"- {b}: " + hints.get(b, "please install the required package(s)."))
         raise ImportError("\n".join(msg))
 
+
 def get_backend(name: str) -> Any:
     key = name.lower().strip()
     if key not in _BACKENDS:
@@ -161,6 +164,7 @@ def get_backend(name: str) -> Any:
     ensure("soft" if key == "soft" else key)
     mod = _import_module(_BACKENDS[key])
     return mod
+
 
 def about() -> str:
     rep = available_backends()
@@ -172,7 +176,9 @@ def about() -> str:
         lines.append(f"  {name.ljust(width)}  {'yes' if avail else 'no ':<3} ({ver or '-'})")
     return "\n".join(lines)
 
+
 # ----- Lazy attribute access & dir() -----------------------------------------
+
 
 def __getattr__(name: str) -> Any:  # pragma: no cover - tiny shim
     if name in _SUBMODULES:
@@ -186,8 +192,10 @@ def __getattr__(name: str) -> Any:  # pragma: no cover - tiny shim
         return obj
     raise AttributeError(f"module 'physical_ai_stl.monitoring' has no attribute {name!r}")
 
+
 def __dir__() -> list[str]:  # pragma: no cover - tiny shim
     return sorted(list(globals().keys()) + list(_SUBMODULES.keys()) + list(_REEXPORTS.keys()))
+
 
 # ----- Static imports for type checkers only ---------------------------------
 
@@ -198,32 +206,32 @@ if TYPE_CHECKING:  # pragma: no cover
     from . import stl_soft as stl_soft                  # noqa: F401
     # Re‑exports
     from .moonlight_helper import (                     # noqa: F401
-        load_script_from_file as load_script_from_file,
-        get_monitor as get_monitor,
         build_grid_graph as build_grid_graph,
         field_to_signal as field_to_signal,
+        get_monitor as get_monitor,
+        load_script_from_file as load_script_from_file,
     )
     from .rtamt_monitor import (                        # noqa: F401
-        evaluate_series as evaluate_series,
         evaluate_multi as evaluate_multi,
+        evaluate_series as evaluate_series,
         satisfied as satisfied,
         stl_always_upper_bound as stl_always_upper_bound,
         stl_response_within as stl_response_within,
     )
     from .stl_soft import (                             # noqa: F401
-        softmin as softmin,
-        softmax as softmax,
-        soft_and as soft_and,
-        soft_or as soft_or,
-        soft_not as soft_not,
-        pred_leq as pred_leq,
-        pred_geq as pred_geq,
-        pred_abs_leq as pred_abs_leq,
-        pred_linear_leq as pred_linear_leq,
         always as always,
-        eventually as eventually,
         always_window as always_window,
+        eventually as eventually,
         eventually_window as eventually_window,
+        pred_abs_leq as pred_abs_leq,
+        pred_geq as pred_geq,
+        pred_leq as pred_leq,
+        pred_linear_leq as pred_linear_leq,
         shift_left as shift_left,
+        soft_and as soft_and,
+        soft_not as soft_not,
+        soft_or as soft_or,
+        softmax as softmax,
+        softmin as softmin,
         STLPenalty as STLPenalty,
     )
