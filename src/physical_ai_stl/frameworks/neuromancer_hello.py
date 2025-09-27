@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from importlib import import_module, util as _import_util
-from typing import Any, Callable
+from typing import Any
 
 
 def _import_neuromancer() -> Any:
