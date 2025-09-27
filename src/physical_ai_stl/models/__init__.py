@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import importlib
 from collections.abc import Callable, Iterable, Mapping
+import importlib
 from typing import Any, TYPE_CHECKING
+
 
 # ------------------------------------------------------------------------------
 # Public surface
