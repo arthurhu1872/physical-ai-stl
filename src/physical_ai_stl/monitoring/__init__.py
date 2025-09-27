@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from importlib import import_module as _import_module, metadata as _metadata, util as _import_util
+import importlib
+import importlib.metadata as _metadata
+import importlib.util as _import_util
 from typing import Any, TYPE_CHECKING
 
 # ----- Public surface (declared up front for tools/IDEs) ---------------------
@@ -107,7 +109,7 @@ def _probe(mod_name: str) -> tuple[bool, str | None]:
         ver = _metadata.version(dist)  # type: ignore[arg-type]
     except Exception:
         try:
-            m = _import_module(mod_name)
+            m = importlib.import_module(mod_name)
             ver = getattr(m, "__version__", None)
         except Exception:
             ver = None
@@ -162,7 +164,7 @@ def get_backend(name: str) -> Any:
         raise KeyError(f"Unknown backend {name!r}. Expected one of: {', '.join(_BACKENDS)}.")
     # Quick dependency check before import (keeps errors helpful)
     ensure("soft" if key == "soft" else key)
-    mod = _import_module(_BACKENDS[key])
+    mod = importlib.import_module(_BACKENDS[key])
     return mod
 
 
@@ -182,12 +184,12 @@ def about() -> str:
 
 def __getattr__(name: str) -> Any:  # pragma: no cover - tiny shim
     if name in _SUBMODULES:
-        mod = _import_module(_SUBMODULES[name])
+        mod = importlib.import_module(_SUBMODULES[name])
         globals()[name] = mod
         return mod
     if name in _REEXPORTS:
         mod_name, obj_name = _REEXPORTS[name].split(":")
-        obj = getattr(_import_module(mod_name), obj_name)
+        obj = getattr(importlib.import_module(mod_name), obj_name)
         globals()[name] = obj
         return obj
     raise AttributeError(f"module 'physical_ai_stl.monitoring' has no attribute {name!r}")
@@ -219,6 +221,7 @@ if TYPE_CHECKING:  # pragma: no cover
         stl_response_within as stl_response_within,
     )
     from .stl_soft import (                             # noqa: F401
+        STLPenalty as STLPenalty,
         always as always,
         always_window as always_window,
         eventually as eventually,
@@ -229,9 +232,8 @@ if TYPE_CHECKING:  # pragma: no cover
         pred_linear_leq as pred_linear_leq,
         shift_left as shift_left,
         soft_and as soft_and,
-        soft_not as soft_not,
-        soft_or as soft_or,
         softmax as softmax,
         softmin as softmin,
-        STLPenalty as STLPenalty,
+        soft_not as soft_not,
+        soft_or as soft_or,
     )
