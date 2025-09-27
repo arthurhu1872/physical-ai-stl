@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Iterable, Mapping, Sequence, Tuple, Dict, List, Any, Optional
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Any
 
 # ----- Internal utilities ----------------------------------------------------
 
@@ -26,7 +26,7 @@ def _import_rtamt():
 # Treat "time series" inputs liberally:
 # - [v0, v1, ...] with uniform dt
 # - [(t0, v0), (t1, v1), ...] explicit timestamps
-TimeSeries = Iterable[float] | Iterable[Tuple[float, float]]
+TimeSeries = Iterable[float] | Iterable[tuple[float, float]]
 
 
 def _normalize_series(series: TimeSeries, dt: float | None) -> list[tuple[float, float]]:
@@ -36,7 +36,7 @@ def _normalize_series(series: TimeSeries, dt: float | None) -> list[tuple[float,
     except StopIteration:
         return []
     # Explicit timestamps given?
-    if isinstance(first, (list, tuple)) and len(first) >= 2:
+    if isinstance(first, list | tuple) and len(first) >= 2:
         t0, v0 = first[0], first[1]
         out = [(float(t0), float(v0))]
         for el in it:
@@ -61,12 +61,12 @@ def _coerce_scalar(rob: object) -> float:
         pass
 
     # Common container fallbacks.
-    if isinstance(rob, (list, tuple)):
+    if isinstance(rob, list | tuple):
         if not rob:
             return 0.0
         first = rob[0]
         # Shape: [(t, value), ...] → take the value
-        if isinstance(first, (list, tuple)):
+        if isinstance(first, list | tuple):
             return float(first[1] if len(first) > 1 else first[0])
         # Shape: [value, ...]
         return float(first)
@@ -76,11 +76,18 @@ def _coerce_scalar(rob: object) -> float:
 
 # ----- Spec builders ---------------------------------------------------------
 
-def stl_always_upper_bound(var: str = "u", u_max: float = 1.0,
-                           *, time_semantics: str = "dense"):
+def stl_always_upper_bound(
+    var: str = "u",
+    u_max: float = 1.0,
+    *,
+    time_semantics: str = "dense",
+):
     rtamt = _import_rtamt()
     if time_semantics == "dense":
-        Spec = getattr(rtamt, 'StlDenseTimeSpecification', None) or getattr(rtamt, 'StlDenseTimeOfflineSpecification')
+        Spec = (
+            getattr(rtamt, "StlDenseTimeSpecification", None)
+            or getattr(rtamt, "StlDenseTimeOfflineSpecification")
+        )
         spec = Spec()
     else:
         spec = rtamt.StlDiscreteTimeSpecification()
@@ -90,25 +97,42 @@ def stl_always_upper_bound(var: str = "u", u_max: float = 1.0,
     return spec
 
 
-def stl_response_within(var: str, boundary: str, theta: float, tau: int,
-                        *, time_semantics: str = "dense"):
+def stl_response_within(
+    var: str,
+    boundary: str,
+    theta: float,
+    tau: int,
+    *,
+    time_semantics: str = "dense",
+):
     rtamt = _import_rtamt()
     if time_semantics == "dense":
-        SpecCls = getattr(rtamt, 'StlDenseTimeSpecification', None) or getattr(rtamt, 'StlDenseTimeOfflineSpecification')
+        SpecCls = (
+            getattr(rtamt, "StlDenseTimeSpecification", None)
+            or getattr(rtamt, "StlDenseTimeOfflineSpecification")
+        )
     else:
         SpecCls = rtamt.StlDiscreteTimeSpecification
     spec = SpecCls()
     spec.declare_var(var, "float")
     spec.declare_var(boundary, "float")
-    spec.spec = (f"always ( ({boundary} >= {float(theta)}) -> "
-                 f"eventually[0:{int(tau)}] ({var} >= {float(theta)}) )")
+    spec.spec = (
+        f"always ( ({boundary} >= {float(theta)}) -> "
+        f"eventually[0:{int(tau)}] ({var} >= {float(theta)}) )"
+    )
     spec.parse()
     return spec
 
 
 # ----- Evaluation helpers ----------------------------------------------------
 
-def evaluate_series(spec: Any, var: str, series: TimeSeries, *, dt: float = 1.0) -> float:
+def evaluate_series(
+    spec: Any,
+    var: str,
+    series: TimeSeries,
+    *,
+    dt: float = 1.0,
+) -> float:
     ts = _normalize_series(series, dt)
     # Try the modern fastest path first: dict mapping.
     try:
@@ -122,9 +146,12 @@ def evaluate_series(spec: Any, var: str, series: TimeSeries, *, dt: float = 1.0)
     return _coerce_scalar(rob)
 
 
-def evaluate_multi(spec: Any,
-                   data: Mapping[str, TimeSeries] | Sequence[tuple[str, TimeSeries]],
-                   *, dt: float | Mapping[str, float] = 1.0) -> float:
+def evaluate_multi(
+    spec: Any,
+    data: Mapping[str, TimeSeries] | Sequence[tuple[str, TimeSeries]],
+    *,
+    dt: float | Mapping[str, float] = 1.0,
+) -> float:
     if isinstance(data, Mapping):
         items = list(data.items())
     else:
@@ -137,7 +164,7 @@ def evaluate_multi(spec: Any,
         dt_map = {name: float(dt) for name, _ in items}
 
     # Normalize all series to timestamped lists.
-    series_map: Dict[str, List[tuple[float, float]]] = {
+    series_map: dict[str, list[tuple[float, float]]] = {
         name: _normalize_series(s, dt_map.get(name))
         for name, s in items
     }
