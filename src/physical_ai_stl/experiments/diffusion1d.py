@@ -12,7 +12,7 @@ from ..models.mlp import MLP
 
 # STL soft semantics (optional)
 try:  # keep import lazy/optional to avoid heavyweight deps in minimal installs
-    from ..monitoring.stl_soft import always, pred_leq, softmax, STLPenalty
+    from ..monitoring.stl_soft import STLPenalty, always, pred_leq, softmax
     _HAS_STL = True
 except ImportError:  # pragma: no cover
     _HAS_STL = False
