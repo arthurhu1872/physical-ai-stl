@@ -1,9 +1,10 @@
+# ruff: noqa: I001
 from __future__ import annotations
 
-from collections.abc import Mapping
 import importlib
 import importlib.metadata as _metadata
 import importlib.util as _import_util
+from collections.abc import Mapping
 from typing import Any, TYPE_CHECKING
 
 # ----- Public surface (declared up front for tools/IDEs) ---------------------
@@ -206,6 +207,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from . import moonlight_helper as moonlight_helper  # noqa: F401
     from . import rtamt_monitor as rtamt_monitor        # noqa: F401
     from . import stl_soft as stl_soft                  # noqa: F401
+
     # Re‑exports
     from .moonlight_helper import (                     # noqa: F401
         build_grid_graph as build_grid_graph,
