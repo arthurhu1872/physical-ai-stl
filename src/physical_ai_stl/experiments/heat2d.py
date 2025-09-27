@@ -17,7 +17,8 @@ from ..utils.seed import seed_everything
 
 # STL soft semantics (optional, used if cfg.stl_use is True)
 try:
-    from ..monitoring.stl_soft import always, pred_leq, softmin, STLPenalty
+    # Class names (capitalized) first, then lowercase in alpha order
+    from ..monitoring.stl_soft import STLPenalty, always, pred_leq, softmin
 
     _HAS_STL = True
 except Exception:  # pragma: no cover - optional dep inside package
