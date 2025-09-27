@@ -2,22 +2,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import torch
-from torch import nn, optim, Tensor
+from torch import Tensor, nn, optim
 
 from ..models.mlp import MLP
-from ..physics.diffusion1d import (
-    pde_residual, residual_loss, boundary_loss,
-)
+from ..physics.diffusion1d import boundary_loss, residual_loss
 from ..training.grids import grid1d, sample_interior_1d
 from ..utils.logger import CSVLogger
 from ..utils.seed import seed_everything
 
 # STL soft semantics (optional)
 try:  # keep import lazy/optional to avoid heavyweight deps in minimal installs
-    from ..monitoring.stl_soft import STLPenalty, pred_leq, always, softmax
+    from ..monitoring.stl_soft import always, pred_leq, softmax, STLPenalty
+
     _HAS_STL = True
 except Exception:  # pragma: no cover
     _HAS_STL = False
@@ -35,7 +34,7 @@ class Diffusion1DConfig:
     # model
     hidden: tuple[int, ...] = (64, 64, 64)
     activation: str = "tanh"            # supports MLP's string activations ("tanh", "relu", "sine", "auto", ...)
-    out_act: Optional[str] = None       # optional output activation (e.g., "tanh")
+    out_act: str | None = None          # optional output activation (e.g., "tanh")
     # grid/domain
     n_x: int = 128
     n_t: int = 64
@@ -55,7 +54,7 @@ class Diffusion1DConfig:
     n_initial: int = 512
     sample_method: str = "sobol"         # "sobol" | "uniform"
     # system
-    device: Optional[str] = None         # "cuda"|"mps"|"cpu"|None(auto)
+    device: str | None = None            # "cuda"|"mps"|"cpu"|None(auto)
     dtype: str = "float32"
     amp: bool = False                    # mixed precision (conservative default False due to higher‑order grads)
     compile: bool = False                # torch.compile if available (PyTorch >= 2.0)
@@ -81,7 +80,7 @@ class Diffusion1DConfig:
 # Helpers
 # -----------------------------------------------------------------------------
 
-def _auto_device(user_choice: Optional[str] = None) -> torch.device:
+def _auto_device(user_choice: str | None = None) -> torch.device:
     if user_choice:
         return torch.device(user_choice)
     if torch.cuda.is_available():
@@ -188,7 +187,9 @@ def run_diffusion1d(cfg_dict: dict[str, Any]) -> str:
     opt = optim.Adam(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
 
     # AMP is conservative by default; second‑order autograd can be finicky in float16.
-    scaler = torch.cuda.amp.GradScaler(enabled=(cfg.amp and device.type == "cuda"))  # type: ignore[attr-defined]
+    scaler = torch.cuda.amp.GradScaler(  # type: ignore[attr-defined]
+        enabled=(cfg.amp and device.type == "cuda"),
+    )
 
     # STL penalty (optional)
     penalty = None
@@ -272,7 +273,8 @@ def run_diffusion1d(cfg_dict: dict[str, Any]) -> str:
         if (epoch % max(1, int(cfg.print_every)) == 0) or (epoch == cfg.epochs - 1):
             print(
                 f"[diffusion1d] epoch={epoch:04d} lr={lr_now:.2e} "
-                f"loss={float(loss):.4e} pde={float(loss_pde):.4e} bcic={float(loss_bcic):.4e} stl={float(loss_stl):.4e}"
+                f"loss={float(loss):.4e} pde={float(loss_pde):.4e} "
+                f"bcic={float(loss_bcic):.4e} stl={float(loss_stl):.4e}"
             )
 
     # --- artifacts ------------------------------------------------------------
