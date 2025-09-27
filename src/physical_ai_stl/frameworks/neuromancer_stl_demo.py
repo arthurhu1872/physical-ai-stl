@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
 import math
+from dataclasses import dataclass
 
 try:
     import torch
@@ -10,8 +9,8 @@ try:
     import torch.nn.functional as F
 except Exception:  # pragma: no cover
     torch = None  # type: ignore[assignment]
-    nn = None     # type: ignore[assignment]
-    F = None      # type: ignore[assignment]
+    nn = None  # type: ignore[assignment]
+    F = None  # type: ignore[assignment]
 
 
 # -----------------------------------------------------------------------------
@@ -38,28 +37,30 @@ def _require_torch() -> None:
         raise RuntimeError("PyTorch is required for this demo, but is not available.")
 
 
-def _make_data(n: int, device: str = "cpu") -> Dict[str, "torch.Tensor"]:
+def _make_data(n: int, device: str = "cpu") -> dict[str, torch.Tensor]:
     _require_torch()
     t = torch.linspace(0.0, 2.0 * math.pi, n, device=device).reshape(n, 1)
     y_true = torch.sin(t)
     return {"t": t, "y_true": y_true}
 
 
-def _mlp(insize: int = 1, outsize: int = 1) -> "nn.Module":
+def _mlp(insize: int = 1, outsize: int = 1) -> nn.Module:
     _require_torch()
     return nn.Sequential(
-        nn.Linear(insize, 64), nn.Tanh(),
-        nn.Linear(64, 64), nn.Tanh(),
+        nn.Linear(insize, 64),
+        nn.Tanh(),
+        nn.Linear(64, 64),
+        nn.Tanh(),
         nn.Linear(64, outsize),
     )
 
 
-def stl_violation(u: "torch.Tensor", bound: float) -> "torch.Tensor":
+def stl_violation(u: torch.Tensor, bound: float) -> torch.Tensor:
     _require_torch()
     return torch.relu(u - bound)  # type: ignore[operator]
 
 
-def stl_offline_robustness(u: "torch.Tensor", bound: float) -> float:
+def stl_offline_robustness(u: torch.Tensor, bound: float) -> float:
     _require_torch()
     return float((bound - u).min().item())
 
@@ -68,7 +69,7 @@ def stl_offline_robustness(u: "torch.Tensor", bound: float) -> float:
 # PyTorch baseline
 # -----------------------------------------------------------------------------
 
-def _train_pytorch(cfg: DemoConfig, data: Dict[str, "torch.Tensor"]) -> Dict[str, float]:
+def _train_pytorch(cfg: DemoConfig, data: dict[str, torch.Tensor]) -> dict[str, float]:
     torch.manual_seed(cfg.seed)
     device = torch.device(cfg.device)
 
@@ -104,7 +105,7 @@ def _train_pytorch(cfg: DemoConfig, data: Dict[str, "torch.Tensor"]) -> Dict[str
 # Neuromancer variant (optional)
 # -----------------------------------------------------------------------------
 
-def _train_neuromancer(cfg: DemoConfig, data: Dict[str, "torch.Tensor"]) -> Optional[Dict[str, float]]:
+def _train_neuromancer(cfg: DemoConfig, data: dict[str, torch.Tensor]) -> dict[str, float] | None:
     try:
         import neuromancer as nm  # type: ignore
     except Exception:
@@ -113,7 +114,9 @@ def _train_neuromancer(cfg: DemoConfig, data: Dict[str, "torch.Tensor"]) -> Opti
     try:
         # Model block identical to the PyTorch MLP.
         func = nm.modules.blocks.MLP(  # type: ignore[attr-defined]
-            insize=1, outsize=1, hsizes=[64, 64],
+            insize=1,
+            outsize=1,
+            hsizes=[64, 64],
             nonlin=nn.Tanh,  # reuse torch.nn.Tanh for parity
             linear_map=nm.slim.maps["linear"],  # type: ignore[index]
         )
@@ -121,14 +124,14 @@ def _train_neuromancer(cfg: DemoConfig, data: Dict[str, "torch.Tensor"]) -> Opti
 
         # Symbolic variables and objective.
         y_hat = nm.constraint.variable("y_hat")  # type: ignore[attr-defined]
-        y = nm.constraint.variable("y_true")     # type: ignore[attr-defined]
+        y = nm.constraint.variable("y_true")  # type: ignore[attr-defined]
         obj = ((y_hat - y) ** 2).mean().minimize(weight=1.0, name="fit")  # type: ignore[attr-defined]
 
         # Soft inequality y_hat <= bound with a configurable weight.
         con = cfg.weight * (y_hat <= cfg.bound)  # type: ignore[operator]
 
         loss = nm.loss.PenaltyLoss(objectives=[obj], constraints=[con])  # type: ignore[attr-defined]
-        problem = nm.problem.Problem(nodes=[node], loss=loss)            # type: ignore[attr-defined]
+        problem = nm.problem.Problem(nodes=[node], loss=loss)  # type: ignore[attr-defined]
 
         # Dataset + loader
         DictDataset = getattr(nm.dataset, "DictDataset")  # type: ignore[attr-defined]
@@ -183,7 +186,7 @@ def _train_neuromancer(cfg: DemoConfig, data: Dict[str, "torch.Tensor"]) -> Opti
 # Public API
 # -----------------------------------------------------------------------------
 
-def train_demo(cfg: DemoConfig) -> Dict[str, Optional[Dict[str, float]]]:
+def train_demo(cfg: DemoConfig) -> dict[str, dict[str, float] | None]:
     _require_torch()
     torch.manual_seed(cfg.seed)
     device = torch.device(cfg.device)
