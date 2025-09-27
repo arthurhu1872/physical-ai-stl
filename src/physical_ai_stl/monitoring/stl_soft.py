@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +168,7 @@ class STLPenaltyConfig:
     reduction: str = "mean"        # {'mean', 'sum', 'none'}
 
 
-class STLPenalty(nn.Module):
+class STLPenalty(torch.nn.Module):
 
     def __init__(
         self,
@@ -195,7 +193,7 @@ class STLPenalty(nn.Module):
     def forward(self, robustness: torch.Tensor) -> torch.Tensor:
         delta = self.margin - robustness  # positive when violating desired margin
         if self.kind == "softplus":
-            loss = F.softplus(self.beta * delta) / self.beta
+            loss = torch.nn.functional.softplus(self.beta * delta) / self.beta
         elif self.kind == "logistic":
             loss = torch.log1p(torch.exp(self.beta * delta)) / self.beta
         elif self.kind == "hinge":
