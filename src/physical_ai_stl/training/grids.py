@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Optional, Sequence
 
 import torch
 
@@ -43,7 +43,7 @@ def grid1d(
     t_min: float = 0.0,
     t_max: float = 1.0,
     device: str | torch.device = "cpu",
-    dtype: Optional[torch.dtype] = None,
+    dtype: torch.dtype | None = None,
     return_cartesian: bool = False,
 ) -> tuple[Tensor, Tensor, Tensor]:
     if dtype is None:
@@ -62,11 +62,14 @@ def grid2d(
     n_x: int = 64,
     n_y: int = 64,
     n_t: int = 50,
-    x_min: float = 0.0, x_max: float = 1.0,
-    y_min: float = 0.0, y_max: float = 1.0,
-    t_min: float = 0.0, t_max: float = 1.0,
+    x_min: float = 0.0,
+    x_max: float = 1.0,
+    y_min: float = 0.0,
+    y_max: float = 1.0,
+    t_min: float = 0.0,
+    t_max: float = 1.0,
     device: str | torch.device = "cpu",
-    dtype: Optional[torch.dtype] = None,
+    dtype: torch.dtype | None = None,
     return_cartesian: bool = False,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
     if dtype is None:
@@ -87,12 +90,16 @@ def grid3d(
     n_y: int = 32,
     n_z: int = 32,
     n_t: int = 20,
-    x_min: float = 0.0, x_max: float = 1.0,
-    y_min: float = 0.0, y_max: float = 1.0,
-    z_min: float = 0.0, z_max: float = 1.0,
-    t_min: float = 0.0, t_max: float = 1.0,
+    x_min: float = 0.0,
+    x_max: float = 1.0,
+    y_min: float = 0.0,
+    y_max: float = 1.0,
+    z_min: float = 0.0,
+    z_max: float = 1.0,
+    t_min: float = 0.0,
+    t_max: float = 1.0,
     device: str | torch.device = "cpu",
-    dtype: Optional[torch.dtype] = None,
+    dtype: torch.dtype | None = None,
     return_cartesian: bool = False,
 ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
     if dtype is None:
@@ -114,8 +121,15 @@ def grid3d(
 # ---------------------------------------------------------------------------
 
 def spacing1d(
-    n_x: int, n_t: int, x_min: float, x_max: float, t_min: float, t_max: float,
-    *, device: str | torch.device = "cpu", dtype: Optional[torch.dtype] = None
+    n_x: int,
+    n_t: int,
+    x_min: float,
+    x_max: float,
+    t_min: float,
+    t_max: float,
+    *,
+    device: str | torch.device = "cpu",
+    dtype: torch.dtype | None = None,
 ) -> tuple[Tensor, Tensor]:
     if dtype is None:
         dtype = torch.get_default_dtype()
@@ -125,9 +139,18 @@ def spacing1d(
 
 
 def spacing2d(
-    n_x: int, n_y: int, n_t: int,
-    x_min: float, x_max: float, y_min: float, y_max: float, t_min: float, t_max: float,
-    *, device: str | torch.device = "cpu", dtype: Optional[torch.dtype] = None
+    n_x: int,
+    n_y: int,
+    n_t: int,
+    x_min: float,
+    x_max: float,
+    y_min: float,
+    y_max: float,
+    t_min: float,
+    t_max: float,
+    *,
+    device: str | torch.device = "cpu",
+    dtype: torch.dtype | None = None,
 ) -> tuple[Tensor, Tensor, Tensor]:
     if dtype is None:
         dtype = torch.get_default_dtype()
@@ -142,7 +165,13 @@ def spacing2d(
 # ---------------------------------------------------------------------------
 
 def _unit_samples(
-    num: int, dim: int, *, method: str, device, dtype, seed: Optional[int]
+    num: int,
+    dim: int,
+    *,
+    method: str,
+    device,
+    dtype,
+    seed: int | None,
 ) -> Tensor:
     if method not in {"uniform", "sobol"}:
         raise ValueError("method must be 'uniform' or 'sobol'")
@@ -156,13 +185,15 @@ def _unit_samples(
 
 def sample_interior_1d(
     n: int,
-    x_min: float = 0.0, x_max: float = 1.0,
-    t_min: float = 0.0, t_max: float = 1.0,
+    x_min: float = 0.0,
+    x_max: float = 1.0,
+    t_min: float = 0.0,
+    t_max: float = 1.0,
     *,
     method: str = "sobol",
     device: str | torch.device = "cpu",
-    dtype: Optional[torch.dtype] = None,
-    seed: Optional[int] = None,
+    dtype: torch.dtype | None = None,
+    seed: int | None = None,
 ) -> Tensor:
     if dtype is None:
         dtype = torch.get_default_dtype()
@@ -174,14 +205,17 @@ def sample_interior_1d(
 
 def sample_interior_2d(
     n: int,
-    x_min: float = 0.0, x_max: float = 1.0,
-    y_min: float = 0.0, y_max: float = 1.0,
-    t_min: float = 0.0, t_max: float = 1.0,
+    x_min: float = 0.0,
+    x_max: float = 1.0,
+    y_min: float = 0.0,
+    y_max: float = 1.0,
+    t_min: float = 0.0,
+    t_max: float = 1.0,
     *,
     method: str = "sobol",
     device: str | torch.device = "cpu",
-    dtype: Optional[torch.dtype] = None,
-    seed: Optional[int] = None,
+    dtype: torch.dtype | None = None,
+    seed: int | None = None,
 ) -> Tensor:
     if dtype is None:
         dtype = torch.get_default_dtype()
@@ -193,13 +227,15 @@ def sample_interior_2d(
 
 def sample_boundary_1d(
     n_total: int,
-    x_min: float = 0.0, x_max: float = 1.0,
-    t_min: float = 0.0, t_max: float = 1.0,
+    x_min: float = 0.0,
+    x_max: float = 1.0,
+    t_min: float = 0.0,
+    t_max: float = 1.0,
     *,
     method: str = "sobol",
     device: str | torch.device = "cpu",
-    dtype: Optional[torch.dtype] = None,
-    seed: Optional[int] = None,
+    dtype: torch.dtype | None = None,
+    seed: int | None = None,
 ) -> Tensor:
     if dtype is None:
         dtype = torch.get_default_dtype()
@@ -208,8 +244,7 @@ def sample_boundary_1d(
     # Sample times with low-discrepancy sequence (1D)
     u_t_left = _unit_samples(n_left, 1, method=method, device=device, dtype=dtype, seed=seed)
     u_t_right = _unit_samples(
-        n_right, 1, method=method, device=device, dtype=dtype,
-        seed=None if seed is None else seed + 1
+        n_right, 1, method=method, device=device, dtype=dtype, seed=None if seed is None else seed + 1
     )
     t_left = t_min + u_t_left[:, 0:1] * (t_max - t_min)
     t_right = t_min + u_t_right[:, 0:1] * (t_max - t_min)
@@ -220,15 +255,18 @@ def sample_boundary_1d(
 
 def sample_boundary_2d(
     n_total: int,
-    x_min: float = 0.0, x_max: float = 1.0,
-    y_min: float = 0.0, y_max: float = 1.0,
-    t_min: float = 0.0, t_max: float = 1.0,
+    x_min: float = 0.0,
+    x_max: float = 1.0,
+    y_min: float = 0.0,
+    y_max: float = 1.0,
+    t_min: float = 0.0,
+    t_max: float = 1.0,
     *,
     method: str = "sobol",
     device: str | torch.device = "cpu",
-    dtype: Optional[torch.dtype] = None,
-    seed: Optional[int] = None,
-    split: Optional[Sequence[float]] = None,
+    dtype: torch.dtype | None = None,
+    seed: int | None = None,
+    split: Sequence[float] | None = None,
 ) -> Tensor:
     if dtype is None:
         dtype = torch.get_default_dtype()
@@ -249,8 +287,7 @@ def sample_boundary_2d(
         if n == 0:
             return torch.empty(0, 1, device=device, dtype=dtype)
         u = _unit_samples(
-            n, 1, method=method, device=device, dtype=dtype,
-            seed=None if seed is None else seed + seed_shift
+            n, 1, method=method, device=device, dtype=dtype, seed=None if seed is None else seed + seed_shift
         )
         return t_min + u[:, 0:1] * (t_max - t_min)
 
@@ -258,16 +295,19 @@ def sample_boundary_2d(
         if n == 0:
             return torch.empty(0, 1, device=device, dtype=dtype)
         u = _unit_samples(
-            n, 1, method=method, device=device, dtype=dtype,
-            seed=None if seed is None else seed + seed_shift
+            n, 1, method=method, device=device, dtype=dtype, seed=None if seed is None else seed + seed_shift
         )
         return lo + u[:, 0:1] * (hi - lo)
 
     # Faces: left (x=x_min), right (x=x_max), bottom (y=y_min), top (y=y_max)
-    t_left = _sample_time(counts[0], 0); y_left = _sample_coord(counts[0], y_min, y_max, 10)
-    t_right = _sample_time(counts[1], 1); y_right = _sample_coord(counts[1], y_min, y_max, 11)
-    t_bottom = _sample_time(counts[2], 2); x_bottom = _sample_coord(counts[2], x_min, x_max, 12)
-    t_top = _sample_time(counts[3], 3); x_top = _sample_coord(counts[3], x_min, x_max, 13)
+    t_left = _sample_time(counts[0], 0)
+    y_left = _sample_coord(counts[0], y_min, y_max, 10)
+    t_right = _sample_time(counts[1], 1)
+    y_right = _sample_coord(counts[1], y_min, y_max, 11)
+    t_bottom = _sample_time(counts[2], 2)
+    x_bottom = _sample_coord(counts[2], x_min, x_max, 12)
+    t_top = _sample_time(counts[3], 3)
+    x_top = _sample_coord(counts[3], x_min, x_max, 13)
 
     left = torch.cat([torch.full_like(t_left, x_min), y_left, t_left], dim=1)
     right = torch.cat([torch.full_like(t_right, x_max), y_right, t_right], dim=1)
@@ -287,55 +327,168 @@ class Box1D:
     t_min: float = 0.0
     t_max: float = 1.0
 
-    def grid(self, n_x: int, n_t: int, *, device="cpu", dtype: Optional[torch.dtype] = None,
-             return_cartesian: bool = False) -> tuple[Tensor, Tensor, Tensor]:
-        return grid1d(n_x, n_t, self.x_min, self.x_max, self.t_min, self.t_max,
-                      device=device, dtype=dtype, return_cartesian=return_cartesian)
+    def grid(
+        self,
+        n_x: int,
+        n_t: int,
+        *,
+        device="cpu",
+        dtype: torch.dtype | None = None,
+        return_cartesian: bool = False,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        return grid1d(
+            n_x,
+            n_t,
+            self.x_min,
+            self.x_max,
+            self.t_min,
+            self.t_max,
+            device=device,
+            dtype=dtype,
+            return_cartesian=return_cartesian,
+        )
 
-    def sample_interior(self, n: int, *, method: str = "sobol", device="cpu",
-                        dtype: Optional[torch.dtype] = None, seed: Optional[int] = None) -> Tensor:
-        return sample_interior_1d(n, self.x_min, self.x_max, self.t_min, self.t_max,
-                                  method=method, device=device, dtype=dtype, seed=seed)
+    def sample_interior(
+        self,
+        n: int,
+        *,
+        method: str = "sobol",
+        device="cpu",
+        dtype: torch.dtype | None = None,
+        seed: int | None = None,
+    ) -> Tensor:
+        return sample_interior_1d(
+            n,
+            self.x_min,
+            self.x_max,
+            self.t_min,
+            self.t_max,
+            method=method,
+            device=device,
+            dtype=dtype,
+            seed=seed,
+        )
 
-    def sample_boundary(self, n_total: int, *, method: str = "sobol", device="cpu",
-                        dtype: Optional[torch.dtype] = None, seed: Optional[int] = None) -> Tensor:
-        return sample_boundary_1d(n_total, self.x_min, self.x_max, self.t_min, self.t_max,
-                                  method=method, device=device, dtype=dtype, seed=seed)
+    def sample_boundary(
+        self,
+        n_total: int,
+        *,
+        method: str = "sobol",
+        device="cpu",
+        dtype: torch.dtype | None = None,
+        seed: int | None = None,
+    ) -> Tensor:
+        return sample_boundary_1d(
+            n_total,
+            self.x_min,
+            self.x_max,
+            self.t_min,
+            self.t_max,
+            method=method,
+            device=device,
+            dtype=dtype,
+            seed=seed,
+        )
 
 
 @dataclass(frozen=True)
 class Box2D:
-    x_min: float = 0.0; x_max: float = 1.0
-    y_min: float = 0.0; y_max: float = 1.0
-    t_min: float = 0.0; t_max: float = 1.0
+    x_min: float = 0.0
+    x_max: float = 1.0
+    y_min: float = 0.0
+    y_max: float = 1.0
+    t_min: float = 0.0
+    t_max: float = 1.0
 
-    def grid(self, n_x: int, n_y: int, n_t: int, *, device="cpu", dtype: Optional[torch.dtype] = None,
-             return_cartesian: bool = False) -> tuple[Tensor, Tensor, Tensor, Tensor]:
-        return grid2d(n_x, n_y, n_t, self.x_min, self.x_max, self.y_min, self.y_max,
-                      self.t_min, self.t_max, device=device, dtype=dtype, return_cartesian=return_cartesian)
+    def grid(
+        self,
+        n_x: int,
+        n_y: int,
+        n_t: int,
+        *,
+        device="cpu",
+        dtype: torch.dtype | None = None,
+        return_cartesian: bool = False,
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        return grid2d(
+            n_x,
+            n_y,
+            n_t,
+            self.x_min,
+            self.x_max,
+            self.y_min,
+            self.y_max,
+            self.t_min,
+            self.t_max,
+            device=device,
+            dtype=dtype,
+            return_cartesian=return_cartesian,
+        )
 
-    def sample_interior(self, n: int, *, method: str = "sobol", device="cpu",
-                        dtype: Optional[torch.dtype] = None, seed: Optional[int] = None) -> Tensor:
-        return sample_interior_2d(n, self.x_min, self.x_max, self.y_min, self.y_max,
-                                  self.t_min, self.t_max, method=method, device=device, dtype=dtype, seed=seed)
+    def sample_interior(
+        self,
+        n: int,
+        *,
+        method: str = "sobol",
+        device="cpu",
+        dtype: torch.dtype | None = None,
+        seed: int | None = None,
+    ) -> Tensor:
+        return sample_interior_2d(
+            n,
+            self.x_min,
+            self.x_max,
+            self.y_min,
+            self.y_max,
+            self.t_min,
+            self.t_max,
+            method=method,
+            device=device,
+            dtype=dtype,
+            seed=seed,
+        )
 
-    def sample_boundary(self, n_total: int, *, method: str = "sobol", device="cpu",
-                        dtype: Optional[torch.dtype] = None, seed: Optional[int] = None,
-                        split: Optional[Sequence[float]] = None) -> Tensor:
-        return sample_boundary_2d(n_total, self.x_min, self.x_max, self.y_min, self.y_max,
-                                  self.t_min, self.t_max, method=method, device=device, dtype=dtype,
-                                  seed=seed, split=split)
+    def sample_boundary(
+        self,
+        n_total: int,
+        *,
+        method: str = "sobol",
+        device="cpu",
+        dtype: torch.dtype | None = None,
+        seed: int | None = None,
+        split: Sequence[float] | None = None,
+    ) -> Tensor:
+        return sample_boundary_2d(
+            n_total,
+            self.x_min,
+            self.x_max,
+            self.y_min,
+            self.y_max,
+            self.t_min,
+            self.t_max,
+            method=method,
+            device=device,
+            dtype=dtype,
+            seed=seed,
+            split=split,
+        )
 
 
 __all__ = [
     # original API
-    "grid1d", "grid2d",
+    "grid1d",
+    "grid2d",
     # new generators
     "grid3d",
     # spacing
-    "spacing1d", "spacing2d",
+    "spacing1d",
+    "spacing2d",
     # samplers
-    "sample_interior_1d", "sample_interior_2d", "sample_boundary_1d", "sample_boundary_2d",
+    "sample_interior_1d",
+    "sample_interior_2d",
+    "sample_boundary_1d",
+    "sample_boundary_2d",
     # domains
-    "Box1D", "Box2D",
+    "Box1D",
+    "Box2D",
 ]
