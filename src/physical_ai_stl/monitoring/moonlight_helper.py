@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Literal, Sequence, Tuple
+from typing import Literal
 
 import numpy as _np
 
@@ -39,7 +39,7 @@ def get_monitor(mls, name: str):
 # ---------------------------------------------------------------------------
 # Grid graph utilities
 # ---------------------------------------------------------------------------
-def _grid_adjacency(nx: int, ny: int, weight: float) -> List[List[float]]:
+def _grid_adjacency(nx: int, ny: int, weight: float) -> list[list[float]]:
     if nx <= 0 or ny <= 0:
         raise ValueError(f"grid dimensions must be positive, got nx={nx}, ny={ny}")
     n = nx * ny
@@ -71,10 +71,10 @@ def _grid_adjacency(nx: int, ny: int, weight: float) -> List[List[float]]:
     return adj
 
 
-def _grid_triples(nx: int, ny: int, weight: float) -> List[List[float]]:
+def _grid_triples(nx: int, ny: int, weight: float) -> list[list[float]]:
     if nx <= 0 or ny <= 0:
         raise ValueError(f"grid dimensions must be positive, got nx={nx}, ny={ny}")
-    triples: List[List[float]] = []
+    triples: list[list[float]] = []
 
     def idx(i: int, j: int) -> int:
         return i * ny + j
@@ -100,9 +100,9 @@ def build_grid_graph(
     weight: float = 1.0,
     return_format: Literal["adjacency", "triples", "nodes_edges"] = "adjacency",
 ) -> (
-    List[List[float]]
-    | List[List[float]]
-    | Tuple[_np.ndarray, _np.ndarray]
+    list[list[float]]
+    | list[list[float]]
+    | tuple[_np.ndarray, _np.ndarray]
 ):
     if return_format == "adjacency":
         return _grid_adjacency(n_x, n_y, float(weight))
@@ -129,7 +129,7 @@ def build_grid_graph(
 # ---------------------------------------------------------------------------
 # Signal helpers
 # ---------------------------------------------------------------------------
-def _as_py_float_nested(a: _np.ndarray) -> List[List[List[float]]]:
+def _as_py_float_nested(a: _np.ndarray) -> list[list[list[float]]]:
     # Ensure we have shape (T, N, F)
     if a.ndim == 2:
         a = a[:, :, None]
@@ -146,7 +146,7 @@ def field_to_signal(
     threshold: float | None = None,
     *,
     layout: Literal["xy_t", "t_xy"] = "xy_t",
-) -> List[List[List[float]]]:
+) -> list[list[list[float]]]:
     a = _np.asarray(u)
     if layout == "xy_t":
         if a.ndim != 3:
