@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
 
 import torch
-from torch import nn
+import torch.nn as nn
 import torch.nn.functional as F
 
 
@@ -69,7 +68,7 @@ def pred_linear_leq(x: torch.Tensor, a: torch.Tensor, b: float | torch.Tensor) -
 # Temporal operators over a time axis
 # ---------------------------------------------------------------------------
 
-def _move_time_last(x: torch.Tensor, time_dim: int) -> Tuple[torch.Tensor, int]:
+def _move_time_last(x: torch.Tensor, time_dim: int) -> tuple[torch.Tensor, int]:
     time_dim = int(time_dim) % x.ndim
     if time_dim != x.ndim - 1:
         x = x.movedim(time_dim, -1)
