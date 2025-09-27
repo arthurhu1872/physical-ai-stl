@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable, Mapping, TYPE_CHECKING
+from collections.abc import Callable, Iterable, Mapping
 import importlib
+from typing import Any, TYPE_CHECKING
 
 # ------------------------------------------------------------------------------
 # Public surface
@@ -92,6 +93,7 @@ def build(name: str, *args: Any, **kwargs: Any) -> Any:
 # Avoid importing torch/MLP at import time. The builder imports on demand.
 def _build_mlp(*args: Any, **kwargs: Any) -> Any:
     from .mlp import MLP  # local import to keep top‑level import fast
+
     return MLP(*args, **kwargs)
 
 
