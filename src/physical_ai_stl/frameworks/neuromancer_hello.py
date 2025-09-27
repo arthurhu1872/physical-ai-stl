@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from importlib import import_module, util as _import_util
+from importlib import import_module
+from importlib.util import find_spec as _find_spec
 from typing import Any
 
 
@@ -35,7 +36,7 @@ def neuromancer_version() -> str:
 
 
 def neuromancer_available() -> bool:
-    spec = _import_util.find_spec("neuromancer")
+    spec = _find_spec("neuromancer")
     return spec is not None
 
 
