@@ -1,7 +1,8 @@
+# ruff: noqa: I001
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
 import importlib
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any, TYPE_CHECKING
 
 
