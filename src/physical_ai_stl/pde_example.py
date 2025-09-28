@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Tuple
-
 import numpy as np
 
 
@@ -129,6 +127,7 @@ def compute_spatiotemporal_robustness(
 
 # --- Optional helpers (kept tiny; can be handy in notebooks/tests) -----------------
 
+
 def pointwise_bounds_margin(x: np.ndarray, lower: float, upper: float) -> np.ndarray:
     arr = np.asarray(x, dtype=float)
     return np.minimum(arr - lower, upper - arr)
@@ -141,7 +140,7 @@ def _sliding_extreme(x: np.ndarray, window: int, extreme: str) -> np.ndarray:
     from collections import deque
 
     cmp = (lambda a, b: a <= b) if extreme == "min" else (lambda a, b: a >= b)
-    dq: "deque[Tuple[int, float]]" = deque()
+    dq: deque[tuple[int, float]] = deque()
     out = np.empty_like(x, dtype=float)
     for i, val in enumerate(x):
         # pop dominated values from the right
