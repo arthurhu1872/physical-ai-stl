@@ -1,13 +1,12 @@
-# src/physical_ai_stl/physics/diffusion1d.py
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
 
 import torch
-from torch import Tensor, nn
+from torch import nn, Tensor
 
-from ..models.mlp import MLP  # import kept for type hints/backwards compat
+from ..models.mlp import MLP
 
 
 # ---------------------------------------------------------------------------
