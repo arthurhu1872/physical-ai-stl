@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-
-from collections.abc import Iterable, Mapping, Sequence
-from pathlib import Path
-from typing import Any, Optional
-
 import csv
 import os
 import time
-
+from collections.abc import Iterable, Mapping
+from pathlib import Path
+from typing import Any
 
 __all__ = ["CSVLogger"]
 
@@ -17,12 +14,11 @@ __all__ = ["CSVLogger"]
 
 
 class _FileLock:
-
     def __init__(self, target: Path, timeout: float = 5.0, poll: float = 0.01) -> None:
         self._lock_path = Path(str(target) + ".lock")
         self._timeout = float(timeout)
         self._poll = float(poll)
-        self._fd: Optional[int] = None
+        self._fd: int | None = None
 
     def acquire(self) -> None:
         deadline = time.time() + self._timeout
@@ -48,7 +44,7 @@ class _FileLock:
         except FileNotFoundError:
             pass
 
-    def __enter__(self) -> "_FileLock":
+    def __enter__(self) -> _FileLock:
         self.acquire()
         return self
 
@@ -65,8 +61,24 @@ class _NullContext:
 
 
 class _Opts:
-    __slots__ = ("delimiter","encoding","float_precision","strict_lengths","lock","lock_timeout")
-    def __init__(self, delimiter=",", encoding="utf-8", float_precision=None, strict_lengths=True, lock=False, lock_timeout=5.0):
+    __slots__ = (
+        "delimiter",
+        "encoding",
+        "float_precision",
+        "strict_lengths",
+        "lock",
+        "lock_timeout",
+    )
+
+    def __init__(
+        self,
+        delimiter: str = ",",
+        encoding: str = "utf-8",
+        float_precision: int | None = None,
+        strict_lengths: bool = True,
+        lock: bool = False,
+        lock_timeout: float = 5.0,
+    ):
         self.delimiter = delimiter
         self.encoding = encoding
         self.float_precision = float_precision
@@ -76,17 +88,16 @@ class _Opts:
 
 
 class CSVLogger:
-
     def __init__(
         self,
         path: str | os.PathLike[str],
-        header: Optional[Iterable[str]] = None,
+        header: Iterable[str] | None = None,
         *,
-        overwrite: Optional[bool] = None,
+        overwrite: bool | None = None,
         create_dirs: bool = True,
         delimiter: str = ",",
         encoding: str = "utf-8",
-        float_precision: Optional[int] = None,
+        float_precision: int | None = None,
         strict_lengths: bool = True,
         lock: bool = False,
         lock_timeout: float = 5.0,
@@ -104,7 +115,7 @@ class CSVLogger:
             lock=lock,
             lock_timeout=lock_timeout,
         )
-        self._header: Optional[list[str]] = list(header) if header is not None else None
+        self._header: list[str] | None = list(header) if header is not None else None
         self._lock = _FileLock(self.path, timeout=lock_timeout) if lock else None
 
         # If header is given, mimic prior behavior (write header, clobber file)
@@ -131,7 +142,7 @@ class CSVLogger:
     # ---- Public API -----------------------------------------------------
 
     @property
-    def header(self) -> Optional[tuple[str, ...]]:
+    def header(self) -> tuple[str, ...] | None:
         return tuple(self._header) if self._header is not None else None
 
     def append(self, row: Iterable[Any] | Mapping[str, Any]) -> None:
@@ -186,7 +197,10 @@ class CSVLogger:
     def _row_from_sequence(self, row: Iterable[Any]) -> list[Any]:
         vals = list(row)
         if self._opt.float_precision is not None:
-            vals = [format(v, f".{self._opt.float_precision}g") if isinstance(v, float) else v for v in vals]
+            vals = [
+                format(v, f".{self._opt.float_precision}g") if isinstance(v, float) else v
+                for v in vals
+            ]
 
         if self._header is not None:
             if self._opt.strict_lengths and len(vals) != len(self._header):
@@ -215,7 +229,10 @@ class CSVLogger:
 
         vals = [m.get(k, "") for k in self._header]
         if self._opt.float_precision is not None:
-            vals = [format(v, f'.{self._opt.float_precision}g') if isinstance(v, float) else v for v in vals]
+            vals = [
+                format(v, f".{self._opt.float_precision}g") if isinstance(v, float) else v
+                for v in vals
+            ]
         return vals
 
     def _peek_first_line(self) -> str:
