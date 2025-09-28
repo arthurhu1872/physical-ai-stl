@@ -45,7 +45,7 @@ stl:
 
 # System/runtime
 device: null             # null => auto (cuda -> mps -> cpu)
-dtype: float32           # second‑order grads are more stable in fp32
+dtype: float32           # second-order grads are more stable in fp32
 amp: false               # mixed precision off by default for stability
 compile: false           # enable if PyTorch 2.x compile is available
 print_every: 25
