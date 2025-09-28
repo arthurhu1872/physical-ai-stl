@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 from __future__ import annotations
 
 import argparse
@@ -6,6 +7,7 @@ import dataclasses
 import importlib
 import importlib.util
 import json
+import os
 import platform
 import re
 import shutil
@@ -14,13 +16,13 @@ import sys
 from collections.abc import Callable, Iterable
 
 try:
-    # Python 3.8+: importlib.metadata in stdlib; fall back for older
+    # Python 3.8+: importlib.metadata in stdlib
     from importlib import metadata as md  # type: ignore
 except Exception:  # pragma: no cover
     import importlib_metadata as md  # type: ignore
 
 
-# ------------------------------- helpers ------------------------------------
+# ------------------------------- data types ----------------------------------
 
 
 @dataclasses.dataclass
@@ -37,12 +39,14 @@ class Dep:
     display: str                 # friendly name to show
     modules: tuple[str, ...]     # python import names to probe (first is canonical)
     dist: str | None = None      # PyPI distribution name for version lookup / pip hint
-    required: bool = False       # for exit code; 'core optional' set True
+    required: bool = False       # if True, contributes to exit code
     post_check: Callable[[ProbeResult, bool], None] | None = None  # augment diagnostics
-    note: str | None = None      # extra note to display
 
     def canonical_module(self) -> str:
         return self.modules[0]
+
+
+# ------------------------------- utilities -----------------------------------
 
 
 def _find_spec(mod: str) -> bool:
@@ -60,16 +64,17 @@ def _safe_import(mod: str) -> tuple[bool, BaseException | None]:
         return False, e
 
 
-def _version_for(dist: str | None, module: str | None) -> str | None:
+def _version_for(dist: str | None, module: str | None, imported: bool) -> str | None:
+    # Prefer PyPI distribution metadata (works even without import)
     if dist:
         try:
             return md.version(dist)  # type: ignore[arg-type]
         except md.PackageNotFoundError:
             pass
         except Exception:
-            # e.g., broken metadata — continue
             pass
-    if module:
+    # Fallback to __version__ attribute if already imported
+    if imported and module:
         try:
             mod_obj = sys.modules.get(module) or importlib.import_module(module)
             v = getattr(mod_obj, "__version__", None)
@@ -86,113 +91,127 @@ def _run(cmd: Iterable[str]) -> tuple[int, str, str]:
         return proc.returncode, proc.stdout, proc.stderr
     except FileNotFoundError:
         return 127, "", ""
-    except Exception as e:  # pragma: no cover - extremely rare on CI
+    except Exception as e:  # pragma: no cover
         return 1, "", f"{e.__class__.__name__}: {e}"
 
 
-def _install_hint(dep: Dep) -> str | None:
-    if dep.dist:
-        # Special-cases with extra context
-        if dep.dist == "torch":
-            return "pip install torch  (or use Makefile: `make install-torch-cpu` / `make install-torch-cu121`)"
-        if dep.dist == "moonlight":
-            return "pip install moonlight  (requires Java 21+; verify `java -version`)"
-        if dep.dist == "spatial-spec":
-            return "pip install spatial-spec  (optional: install MONA and `ltlf2dfa` for automaton-based planning)"
-        if dep.dist == "nvidia-physicsnemo":
-            return "pip install nvidia-physicsnemo  (see docs for optional `[all]` extras)"
-        # Default hint
-        return f"pip install {dep.dist}"
-    return None
-
-
 def _parse_java_version(text: str) -> str | None:
+    """
+    Parses: openjdk version "21.0.2" 2024-01-16 / java version "17.0.9" ...
+    """
     m = re.search(r'version\s+"([\d.]+)"', text)
     return m.group(1) if m else None
 
 
+def _install_hint(dep: Dep) -> str | None:
+    """
+    Friendly, minimal instructions the user can paste in *any* Python (no bash).
+    """
+    if dep.dist:
+        if dep.dist == "torch":
+            return "CPU: python -m pip install torch   (for GPU, see https://pytorch.org/get-started/)"
+        if dep.dist == "moonlight":
+            return "python -m pip install moonlight   (requires Java 21+ on PATH: check with `java -version`)"
+        if dep.dist == "nvidia-physicsnemo":
+            return "python -m pip install nvidia-physicsnemo   (optional: add [all] extras)"
+        if dep.dist == "spatial-spec":
+            return "python -m pip install spatial-spec   (optional automata: install MONA + `python -m pip install ltlf2dfa`)"
+        # default
+        return f"python -m pip install {dep.dist}"
+    return None
+
+
+def _env_add(d: dict[str, str], key: str, val: str | None) -> None:
+    if val:
+        d[key] = val
+
+
+# ----------------------------- post checks -----------------------------------
+
+
 def _cuda_extra(result: ProbeResult, do_import: bool) -> None:
-    # Summarize NVIDIA stack even without importing torch (fast, optional)
+    # Quick NVIDIA/CUDA signal without Python imports
     smi = shutil.which("nvidia-smi")
     if smi:
-        code, out, err = _run([smi, "--query-gpu=name,driver_version,cuda_version", "--format=csv,noheader"])
-        if code == 0:
-            lines = [ln.strip() for ln in (out or "").splitlines() if ln.strip()]
-            if lines:
-                names: list[str] = []
-                drivers: set[str] = set()
-                cudas: set[str] = set()
-                for ln in lines:
-                    parts = [p.strip() for p in ln.split(",")]
-                    if parts:
-                        names.append(parts[0])
-                    if len(parts) > 1 and parts[1]:
-                        drivers.add(parts[1])
-                    if len(parts) > 2 and parts[2]:
-                        cudas.add(parts[2])
-                if names:
-                    result.extra["gpus"] = "; ".join(names)
-                if drivers:
-                    result.extra["nvidia_driver"] = ", ".join(sorted(drivers))
-                if cudas:
-                    result.extra["nvidia_cuda"] = ", ".join(sorted(cudas))
+        code, out, _ = _run([smi, "--query-gpu=name,driver_version,cuda_version", "--format=csv,noheader"])
+        if code == 0 and out:
+            names, drivers, cudas = [], set(), set()
+            for ln in (ln.strip() for ln in out.splitlines() if ln.strip()):
+                parts = [p.strip() for p in ln.split(",")]
+                if parts:
+                    names.append(parts[0])
+                if len(parts) > 1 and parts[1]:
+                    drivers.add(parts[1])
+                if len(parts) > 2 and parts[2]:
+                    cudas.add(parts[2])
+            if names:
+                result.extra["gpus"] = "; ".join(names)
+            if drivers:
+                result.extra["nvidia_driver"] = ", ".join(sorted(drivers))
+            if cudas:
+                result.extra["nvidia_cuda"] = ", ".join(sorted(cudas))
         else:
             result.extra["nvidia_smi"] = f"error (code {code})"
     else:
         result.extra["nvidia_smi"] = "not found"
 
-    # Try to capture NVCC version as well
     nvcc = shutil.which("nvcc")
     if nvcc:
         code, out, err = _run([nvcc, "--version"])
         text = (out or err or "").strip()
         m = re.search(r"release\s+([\d.]+)", text)
-        if m:
-            result.extra["nvcc"] = m.group(1)
-        else:
-            result.extra["nvcc"] = "present"
+        result.extra["nvcc"] = m.group(1) if m else "present"
     else:
         result.extra["nvcc"] = "not found"
 
     if not do_import:
-        result.extra["hint"] = "run with --import to gather CUDA/GPU details via torch"
+        result.extra["hint"] = "add --import to query CUDA/MPS via torch"
         return
+
     try:
         import torch  # type: ignore
-    except Exception as e:  # pragma: no cover - import failure path
+    except Exception as e:  # pragma: no cover
         result.extra["torch_error"] = f"{e.__class__.__name__}: {e}"
         return
+
     try:
-        cuda_ok = torch.cuda.is_available()
-        result.extra["cuda_available"] = str(cuda_ok)
         result.extra["torch_version"] = getattr(torch, "__version__", "?")
-        result.extra["cuda_version"] = getattr(torch.version, "cuda", None) or ""
-        cudnn_v = getattr(torch.backends, "cudnn", None)
-        if cudnn_v is not None and hasattr(cudnn_v, "version"):
-            try:
-                result.extra["cudnn_version"] = str(torch.backends.cudnn.version())  # type: ignore
-            except Exception:
-                pass
-        if cuda_ok:
+        _env_add(result.extra, "cuda_available", str(torch.cuda.is_available()))
+        _env_add(result.extra, "cuda_version", getattr(torch.version, "cuda", None) or "")
+        # cuDNN
+        try:
+            import torch.backends.cudnn as cudnn  # type: ignore
+            _env_add(result.extra, "cudnn_version", str(cudnn.version()))
+        except Exception:
+            pass
+        # Apple MPS (Metal) backend
+        try:
+            mps_ok = hasattr(torch.backends, "mps") and torch.backends.mps.is_available()  # type: ignore[attr-defined]
+            _env_add(result.extra, "mps_available", str(bool(mps_ok)))
+        except Exception:
+            pass
+        # List devices if CUDA is ready
+        if torch.cuda.is_available():
             try:
                 n = torch.cuda.device_count()
                 names = [torch.cuda.get_device_name(i) for i in range(n)]
                 result.extra["gpus"] = "; ".join(names)
             except Exception:
                 pass
-    except Exception as e:  # pragma: no cover - extremely defensive
+    except Exception as e:  # pragma: no cover
         result.extra["torch_cuda_error"] = f"{e.__class__.__name__}: {e}"
 
 
 def _moonlight_extra(result: ProbeResult, do_import: bool) -> None:  # noqa: ARG001
+    # Java presence / version for MoonLight (requires Java 21+)
     java = shutil.which("java")
     if not java:
         result.extra["java"] = "not found in PATH"
         return
     code, out, err = _run([java, "-version"])
     text = (out + "\n" + err).strip()
-    ver = _parse_java_version(text) if code == 0 or text else None
-    result.extra["java"] = f"{java}"
+    ver = _parse_java_version(text) if (code == 0 or text) else None
+    result.extra["java"] = java
     if ver:
         result.extra["java_version"] = ver
         try:
@@ -200,18 +219,22 @@ def _moonlight_extra(result: ProbeResult, do_import: bool) -> None:  # noqa: ARG
             result.extra["java_ok_for_moonlight"] = str(major >= 21)
         except Exception:
             pass
+    if "JAVA_HOME" in os.environ:
+        result.extra["JAVA_HOME"] = os.environ.get("JAVA_HOME", "")
 
 
 def _spatial_extra(result: ProbeResult, do_import: bool) -> None:  # noqa: ARG001
-    # Python binding
+    # Optional external tools SpaTiaL may call
+    mona = shutil.which("mona")
+    result.extra["mona"] = mona or "not found in PATH"
     try:
         import ltlf2dfa  # type: ignore
         result.extra["ltlf2dfa"] = getattr(ltlf2dfa, "__version__", "present")
     except Exception:
         result.extra["ltlf2dfa"] = "missing"
-    # MONA binary
-    mona = shutil.which("mona")
-    result.extra["mona"] = mona or "not found in PATH"
+
+
+# ------------------------------- probing -------------------------------------
 
 
 def _probe(dep: Dep, do_import: bool) -> ProbeResult:
@@ -225,15 +248,10 @@ def _probe(dep: Dep, do_import: bool) -> ProbeResult:
     exc: BaseException | None = None
 
     if do_import and present:
-        imported = False
-        # Try importing the canonical module only to avoid heavy side effects across aliases.
         imported, exc = _safe_import(dep.canonical_module())
-        if imported:
-            msg = "import ok"
-        else:
-            msg = f"import failed: {exc.__class__.__name__}: {exc}"
+        msg = "import ok" if imported else f"import failed: {exc.__class__.__name__}: {exc}"
 
-    version = _version_for(dep.dist, dep.canonical_module() if imported else None)
+    version = _version_for(dep.dist, dep.canonical_module(), imported)
     extra: dict[str, str] = {}
 
     result = ProbeResult(
@@ -244,7 +262,6 @@ def _probe(dep: Dep, do_import: bool) -> ProbeResult:
         extra=extra,
     )
 
-    # Attach domain-specific diagnostics
     if dep.post_check and present:
         try:
             dep.post_check(result, do_import)
@@ -280,26 +297,27 @@ CORE: list[Dep] = [
 ]
 
 EXTRA: list[Dep] = [
+    Dep("NumPy", modules=("numpy",), dist="numpy"),
+    Dep("SciPy", modules=("scipy",), dist="scipy"),
     Dep("matplotlib", modules=("matplotlib",), dist="matplotlib"),
     Dep("tqdm", modules=("tqdm",), dist="tqdm"),
     Dep("PyYAML", modules=("yaml",), dist="PyYAML"),
-    Dep("NumPy", modules=("numpy",), dist="numpy"),
-    Dep("SciPy", modules=("scipy",), dist="scipy"),
     # Optional SpaTiaL subpackage from source (may coexist)
     Dep("SpaTiaL (spatial-lib)", modules=("spatial",)),
 ]
 
 
+# ------------------------------- rendering -----------------------------------
+
+
 def _row(dep: Dep, pr: ProbeResult, ascii_only: bool) -> list[str]:
-    ok = pr.present
-    check = ("OK" if ascii_only else "✅") if ok else ("MISSING" if ascii_only else "❌")
+    check = ("OK" if ascii_only else "✅") if pr.present else ("MISSING" if ascii_only else "❌")
     ver = pr.version or ""
     msg = pr.message
     return [dep.display, check, ver, msg]
 
 
 def _format_table(rows: list[list[str]], headers: list[str]) -> str:
-    # Simple fixed-width table without extra deps; keep dependencies zero.
     widths = [max(len(h), *(len(r[i]) for r in rows)) for i, h in enumerate(headers)]
 
     def fmt_row(r: list[str]) -> str:
@@ -333,27 +351,26 @@ def _print_human(
         print("\nExtras:\n")
         print(_format_table(extra_rows, headers))
 
-    # Selected extra diagnostics
+    # Diagnostics
     _, torch_res = results["PyTorch"]
     if torch_res.present and torch_res.extra:
         print("\nPyTorch details:")
         for k in sorted(torch_res.extra.keys()):
-            if k in torch_res.extra:
-                print(f"  {k:<16}: {torch_res.extra[k]}")
+            print(f"  {k:<18}: {torch_res.extra[k]}")
 
     _, moon_res = results["MoonLight (STREL)"]
     if moon_res.present and moon_res.extra:
         print("\nMoonLight extras:")
-        for k in ("java", "java_version", "java_ok_for_moonlight"):
+        for k in ("java", "java_version", "JAVA_HOME", "java_ok_for_moonlight"):
             if k in moon_res.extra and moon_res.extra[k]:
-                print(f"  {k:<16}: {moon_res.extra[k]}")
+                print(f"  {k:<18}: {moon_res.extra[k]}")
 
     _, spat_res = results["SpaTiaL (spatial-spec)"]
     if spat_res.present and spat_res.extra:
         print("\nSpaTiaL extras:")
         for k in ("ltlf2dfa", "mona"):
             if k in spat_res.extra and spat_res.extra[k]:
-                print(f"  {k:<9}: {spat_res.extra[k]}")
+                print(f"  {k:<10}: {spat_res.extra[k]}")
 
     # Python/platform
     print("\nPython:", sys.version.replace("\n", " "))
@@ -381,7 +398,7 @@ def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool)
             dep, pr = results[d.display]
             print(md_row(dep, pr))
 
-    # Append additional diagnostics in fenced blocks
+    # Append diagnostics in fenced blocks
     _, torch_res = results["PyTorch"]
     if torch_res.present and torch_res.extra:
         print("\n<details><summary>PyTorch details</summary>\n\n```text")
@@ -419,28 +436,60 @@ def _print_json(results: dict[str, tuple[Dep, ProbeResult]]) -> None:
             "message": pr.message,
             "extra": pr.extra,
         }
-    # Attach environment basics
-    payload["_env"] = {
-        "python": sys.version,
-        "platform": platform.platform(),
-    }
+    payload["_env"] = {"python": sys.version, "platform": platform.platform()}
     print(json.dumps(payload, indent=2, sort_keys=True))
+
+
+# ------------------------------- installer -----------------------------------
+
+
+def _attempt_install(missing: list[Dep]) -> dict[str, str]:
+    """
+    Try to install missing Python packages using `python -m pip install <dist>`.
+    Returns a map of dist -> outcome text.
+    """
+    results: dict[str, str] = {}
+    for dep in missing:
+        if not dep.dist:
+            results[dep.display] = "skipped (no PyPI dist)"
+            continue
+        cmd = [sys.executable, "-m", "pip", "install", dep.dist]
+        # Special cases where extras are useful
+        if dep.dist == "nvidia-physicsnemo":
+            cmd[-1] = "nvidia-physicsnemo"
+        code, out, err = _run(cmd)
+        if code == 0:
+            results[dep.dist] = "installed"
+        else:
+            results[dep.dist] = f"failed (code {code})"
+    return results
+
+
+# ---------------------------------- main -------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Quick summary of optional dependencies and their availability."
+        description="Check presence of core frameworks & STL tooling for Physical AI experiments."
     )
-    p.add_argument("--md", action="store_true", help="print a Markdown table")
-    p.add_argument("--json", action="store_true", help="print JSON")
+    out = p.add_mutually_exclusive_group()
+    out.add_argument("--md", action="store_true", help="print a Markdown table")
+    out.add_argument("--json", action="store_true", help="print JSON")
+
+    p.add_argument("--extended", action="store_true", help="also check extra convenience dependencies")
     p.add_argument(
         "--import",
         dest="do_import",
         action="store_true",
-        help="actually import modules (slower, more robust)",
+        help="actually import modules (slower) and probe CUDA/MPS/Java details",
     )
-    p.add_argument("--extended", action="store_true", help="also check extra convenience dependencies")
     p.add_argument("--plain", action="store_true", help="ASCII only (no emoji)")
+    p.add_argument(
+        "--attempt-install",
+        action="store_true",
+        help="try to `python -m pip install` any missing Python packages (no Bash needed)",
+    )
+
     args = p.parse_args(argv)
 
     # Probe everything
@@ -448,6 +497,22 @@ def main(argv: list[str] | None = None) -> int:
     for dep in CORE + EXTRA:
         results[dep.display] = (dep, _probe(dep, args.do_import))
 
+    # Optionally try to install what's missing (Python packages only)
+    if args.attempt_install:
+        to_install = [d for d in CORE if not results[d.display][1].present]
+        if to_install:
+            print("\nAttempting to install missing core Python packages ...\n")
+            outcomes = _attempt_install(to_install)
+            for dist, status in outcomes.items():
+                print(f"  {dist:<22} {status}")
+            print("\nRe-running checks after installation...\n")
+            # Re-probe core only, without imports, to update status quickly
+            for dep in CORE:
+                results[dep.display] = (dep, _probe(dep, False))
+        else:
+            print("\nAll core Python packages already present. Nothing to install.\n")
+
+    # Render
     if args.json:
         _print_json(results)
     elif args.md:
