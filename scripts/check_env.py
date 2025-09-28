@@ -1,39 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-"""
-scripts/check_env.py
-
-Purpose
--------
-One-file, zero-dependency environment check tailored to this repository's goals:
-- Physics-based ML frameworks: Neuromancer, TorchPhysics, NVIDIA PhysicsNeMo
-- STL/STREL tooling: RTAMT, MoonLight (STREL), SpaTiaL
-
-Design priorities (in order):
-1) Meet the lab's requirements exactly (probe the specific stacks + prerequisites)
-2) Be fast and resource-light by default (no heavy imports unless requested)
-3) Produce friendly, reproducible output (human table, Markdown, or JSON)
-
-Usage
------
-  # Human table (fast):
-  python scripts/check_env.py
-
-  # Markdown table with extras (great for README/issues):
-  python scripts/check_env.py --md --extended
-
-  # JSON for tooling/CI:
-  python scripts/check_env.py --json
-
-  # Deeper GPU details via torch (optional, slower):
-  python scripts/check_env.py --import
-
-Exit status
------------
-Returns 0 if all core packages are present, else 1.  (CI can fail fast on missing deps.)
-"""
-
 import argparse
 import dataclasses
 import importlib
@@ -146,12 +113,6 @@ def _parse_java_version(text: str) -> str | None:
 
 
 def _cuda_extra(result: ProbeResult, do_import: bool) -> None:
-    """
-    Summarize accelerator stack state.
-    - NVIDIA: nvidia-smi and nvcc
-    - AMD: rocm-smi and hipcc
-    - Optionally PyTorch’s CUDA/ROCm view when --import is set
-    """
     # NVIDIA
     smi = shutil.which("nvidia-smi")
     if smi:
