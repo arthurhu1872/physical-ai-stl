@@ -1,31 +1,32 @@
 from __future__ import annotations
 
-from typing import Any, Optional
-from pathlib import Path
 import os
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 
 # Prefer the shared helpers if present (keeps behavior consistent across the repo).
 try:  # pragma: no cover - optional dependency path
+    # Import names plainly; assign helper aliases below to keep isort happy.
     from physical_ai_stl.monitoring.moonlight_helper import (
-        build_grid_graph as build_grid_graph,           # re-export for tests
-        field_to_signal as field_to_signal,             # re-export for tests
-        get_monitor as get_monitor,                     # re-export for tests
-        load_script_from_file as load_script_from_file, # re-export for tests
+        build_grid_graph,
+        field_to_signal,
+        get_monitor,
+        load_script_from_file,
     )
     _helper_build_grid_graph = build_grid_graph
     _helper_field_to_signal = field_to_signal
     _helper_get_monitor = get_monitor
     _helper_load_script_from_file = load_script_from_file
 except Exception:  # pragma: no cover
-    build_grid_graph = None            # type: ignore[assignment]
-    field_to_signal = None             # type: ignore[assignment]
-    get_monitor = None                 # type: ignore[assignment]
-    load_script_from_file = None       # type: ignore[assignment]
-    _helper_build_grid_graph = None    # type: ignore[assignment]
-    _helper_field_to_signal = None     # type: ignore[assignment]
-    _helper_get_monitor = None         # type: ignore[assignment]
+    build_grid_graph = None  # type: ignore[assignment]
+    field_to_signal = None  # type: ignore[assignment]
+    get_monitor = None  # type: ignore[assignment]
+    load_script_from_file = None  # type: ignore[assignment]
+    _helper_build_grid_graph = None  # type: ignore[assignment]
+    _helper_field_to_signal = None  # type: ignore[assignment]
+    _helper_get_monitor = None  # type: ignore[assignment]
     _helper_load_script_from_file = None  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
@@ -40,7 +41,8 @@ _MLS_INLINE = (
     "formula contain = eventually (!(somewhere (hot)));\n"
 )
 
-def _resolve_spec_file() -> Optional[Path]:
+
+def _resolve_spec_file() -> Path | None:
     # Allow explicit override via env var
     env = os.environ.get("PHYSICAL_AI_STL_MLS_PATH")
     if env:
