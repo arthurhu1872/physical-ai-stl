@@ -7,12 +7,12 @@ def _coerce_scalar(rob: object) -> float:
         return float(rob)  # type: ignore[arg-type]
     except Exception:
         # Fallbacks for list/tuple containers seen across RTAMT releases.
-        if isinstance(rob, (list, tuple)):
+        if isinstance(rob, list | tuple):
             if not rob:
                 return 0.0
             first = rob[0]
             # Common shape: [(t, value), ...]  → take the value.
-            if isinstance(first, (list, tuple)):
+            if isinstance(first, list | tuple):
                 return float(first[1] if len(first) > 1 else first[0])
             # Otherwise, assume [value, ...].
             return float(first)
