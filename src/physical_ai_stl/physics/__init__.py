@@ -1,4 +1,3 @@
-# src/physical_ai_stl/physics/__init__.py
 from __future__ import annotations
 
 import importlib
@@ -72,8 +71,7 @@ def __dir__() -> list[str]:  # pragma: no cover - trivial
 # ----- Static imports for IDEs / type checkers only ----------------------------
 
 if TYPE_CHECKING:  # pragma: no cover
-    from . import diffusion1d as diffusion1d  # noqa: F401
-    from . import heat2d as heat2d  # noqa: F401
+    from . import diffusion1d as diffusion1d, heat2d as heat2d  # noqa: F401
     from .diffusion1d import (  # noqa: F401
         boundary_loss,
         Interval1D,
