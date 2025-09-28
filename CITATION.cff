@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "physical-ai-stl: STL/STREL monitoring for physics-based ML"
+authors:
+  - family-names: "Hu"
+    given-names: "Arthur"
+date-released: 2025-09-28
+version: "0.1.0"
+license: MIT
+repository-code: "https://github.com/arthurhu1872/physical-ai-stl"
