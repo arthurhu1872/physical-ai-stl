@@ -1,27 +1,56 @@
+# 1D diffusion PINN baseline (reproducible, STL-ready)
 experiment: diffusion1d
 tag: baseline
 seed: 0
 
+# Neural field model
 model:
-  hidden: [64, 64, 64]
-  activation: tanh
+  hidden: [64, 64, 64]   # three-layer MLP; good accuracy/latency tradeoff
+  activation: tanh       # stable for PINNs
+  # out_activation: null # optional; left unset
 
+# Spatial-temporal grid for evaluation/snapshots
 grid:
-  n_x: 128
-  n_t: 64
+  n_x: 128               # spatial resolution (eval grid)
+  n_t: 64                # time resolution (eval grid)
   x_min: 0.0
   x_max: 1.0
   t_min: 0.0
   t_max: 1.0
 
+# Training hyperparameters and sampling
 optim:
-  lr: 0.002
+  lr: 0.002              # Adam initial learning rate
   epochs: 200
-  batch: 4096
+  batch: 4096            # interior collocation points per step
+  weight_decay: 0.0
+  n_boundary: 256        # boundary points per optimization step
+  n_initial: 512         # initial-condition points per optimization step
+  sample_method: sobol   # quasi-random; faster convergence than uniform
 
+# PDE physics (u_t = alpha * u_xx)
 physics:
   alpha: 0.1
 
+# STL monitor (present but disabled for baseline)
+stl:
+  use: false             # set true in diffusion1d_stl.yaml to enable monitoring
+  weight: 0.0            # no effect when use=false
+  u_max: 1.0
+  temp: 0.1
+  spatial: mean          # aggregation across space: mean|softmax|amax
+  every: 1               # evaluate every k steps
+  n_x: 64                # coarse monitor grid; decoupled from train batch
+  n_t: 64
+
+# System/runtime
+device: null             # null => auto (cuda -> mps -> cpu)
+dtype: float32           # second‑order grads are more stable in fp32
+amp: false               # mixed precision off by default for stability
+compile: false           # enable if PyTorch 2.x compile is available
+print_every: 25
+
+# Output
 io:
-  results_dir: results
+  results_dir: results   # artifacts: csv, ckpt, field tensor
   save_ckpt: true
