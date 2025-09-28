@@ -119,7 +119,7 @@ def _run(cmd: Iterable[str]) -> tuple[int, str, str]:
         return proc.returncode, proc.stdout, proc.stderr
     except FileNotFoundError:
         return 127, "", ""
-    except Exception as e:  # pragma: no cover
+    except Exception as e:  # pragma: no cover - extremely rare on CI
         return 1, "", f"{e.__class__.__name__}: {e}"
 
 
@@ -320,7 +320,7 @@ def _probe(dep: Dep, do_import: bool) -> ProbeResult:
         extra=extra,
     )
 
-    # Attach domain-specific diagnostics (run even if package isn't installed to surface prerequisites)
+    # Attach domain-specific diagnostics
     if dep.post_check:
         try:
             dep.post_check(result, do_import)
@@ -348,7 +348,7 @@ CORE: list[Dep] = [
     Dep("PhysicsNeMo", modules=("physicsnemo",), dist="nvidia-physicsnemo", required=True),
     Dep(
         "SpaTiaL (spatial-spec)",
-        modules=("spatial",),
+        modules=("spatial", "spatial_spec"),
         dist="spatial-spec",
         required=True,
         post_check=_spatial_extra,
@@ -361,8 +361,6 @@ EXTRA: list[Dep] = [
     Dep("PyYAML", modules=("yaml",), dist="PyYAML"),
     Dep("NumPy", modules=("numpy",), dist="numpy"),
     Dep("SciPy", modules=("scipy",), dist="scipy"),
-    # Optional SpaTiaL subpackage from source (may coexist)
-    Dep("SpaTiaL (spatial-lib)", modules=("spatial",)),
 ]
 
 
@@ -411,20 +409,20 @@ def _print_human(
 
     # Selected extra diagnostics
     _, torch_res = results["PyTorch"]
-    if torch_res.extra:
+    if torch_res.present and torch_res.extra:
         print("\nPyTorch details:")
         for k in sorted(torch_res.extra.keys()):
             print(f"  {k:<18}: {torch_res.extra[k]}")
 
     _, moon_res = results["MoonLight (STREL)"]
-    if moon_res.extra:
+    if moon_res.present and moon_res.extra:
         print("\nMoonLight extras:")
         for k in ("java", "java_version", "java_ok_for_moonlight"):
             if k in moon_res.extra and moon_res.extra[k]:
                 print(f"  {k:<18}: {moon_res.extra[k]}")
 
     _, spat_res = results["SpaTiaL (spatial-spec)"]
-    if spat_res.extra:
+    if spat_res.present and spat_res.extra:
         print("\nSpaTiaL extras:")
         for k in ("ltlf2dfa", "mona", "windows_note"):
             if k in spat_res.extra and spat_res.extra[k]:
@@ -460,7 +458,7 @@ def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool)
 
     # Append additional diagnostics in fenced blocks
     _, torch_res = results["PyTorch"]
-    if torch_res.extra:
+    if torch_res.present and torch_res.extra:
         print("\n<details><summary>PyTorch details</summary>\n")
         print("```text")
         for k in sorted(torch_res.extra):
@@ -469,7 +467,7 @@ def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool)
         print("</details>")
 
     _, moon_res = results["MoonLight (STREL)"]
-    if moon_res.extra:
+    if moon_res.present and moon_res.extra:
         print("\n<details><summary>MoonLight extras</summary>\n")
         print("```text")
         for k in sorted(moon_res.extra):
@@ -478,7 +476,7 @@ def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool)
         print("</details>")
 
     _, spat_res = results["SpaTiaL (spatial-spec)"]
-    if spat_res.extra:
+    if spat_res.present and spat_res.extra:
         print("\n<details><summary>SpaTiaL extras</summary>\n")
         print("```text")
         for k in sorted(spat_res.extra):
