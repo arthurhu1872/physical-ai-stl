@@ -43,32 +43,32 @@ def test_compute_robustness_order_invariant() -> None:
 @pytest.mark.parametrize("shift", [-1.3, -0.5, 0.0, 0.42, 2.0])
 def test_compute_robustness_translation_invariance(shift: float) -> None:
     sig = np.array([-0.2, 0.1, 0.9, 1.3])
-    l, u = 0.0, 1.0
-    base = pe.compute_robustness(sig, l, u)
-    shifted = pe.compute_robustness(sig + shift, l + shift, u + shift)
+    lower, u = 0.0, 1.0
+    base = pe.compute_robustness(sig, lower, u)
+    shifted = pe.compute_robustness(sig + shift, lower + shift, u + shift)
     assert np.isclose(base, shifted)
 
 
 @pytest.mark.parametrize("scale", [0.2, 0.5, 1.0, 2.0, 10.0])
 def test_compute_robustness_positive_homogeneity(scale: float) -> None:
     sig = np.array([0.2, 0.4, 0.6])
-    l, u = 0.0, 1.0
-    base = pe.compute_robustness(sig, l, u)
-    scaled = pe.compute_robustness(scale * sig, scale * l, scale * u)
+    lower, u = 0.0, 1.0
+    base = pe.compute_robustness(sig, lower, u)
+    scaled = pe.compute_robustness(scale * sig, scale * lower, scale * u)
     assert np.isclose(scaled, scale * base)
 
 
 def test_compute_robustness_monotonic_in_bounds() -> None:
     sig = np.array([0.2, 0.4, 0.6])
-    l, u = 0.0, 1.0
-    base = pe.compute_robustness(sig, l, u)
+    lower, u = 0.0, 1.0
+    base = pe.compute_robustness(sig, lower, u)
 
     # Tighten: raise lower and lower upper (but keep signal within the new interval)
-    tighter = pe.compute_robustness(sig, l + 0.1, u - 0.3)  # new [0.1, 0.7]
+    tighter = pe.compute_robustness(sig, lower + 0.1, u - 0.3)  # new [0.1, 0.7]
     assert tighter <= base + 1e-12
 
     # Widen: extend both bounds
-    wider = pe.compute_robustness(sig, l - 1.0, u + 1.0)
+    wider = pe.compute_robustness(sig, lower - 1.0, u + 1.0)
     assert wider >= base - 1e-12
 
 
@@ -95,9 +95,9 @@ def test_compute_robustness_degenerate_interval() -> None:
 # --------------------------- 2D (spatiotemporal) ------------------------------
 def test_compute_spatiotemporal_agrees_with_flatten() -> None:
     mat = np.array([[0.5, 0.6, 0.7], [0.2, 0.4, 0.9]])
-    l, u = 0.0, 1.0
-    r2d = pe.compute_spatiotemporal_robustness(mat, l, u)
-    r1d = pe.compute_robustness(mat.ravel(), l, u)
+    lower, u = 0.0, 1.0
+    r2d = pe.compute_spatiotemporal_robustness(mat, lower, u)
+    r1d = pe.compute_robustness(mat.ravel(), lower, u)
     assert np.isclose(r2d, r1d)
 
 
