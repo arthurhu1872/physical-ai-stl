@@ -1,11 +1,11 @@
 # src/physical_ai_stl/physics/diffusion1d.py
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
 
 import torch
-from torch import Tensor, nn
+from torch import nn, Tensor
 
 from ..models.mlp import MLP  # import kept for type hints/backwards compat
 
@@ -44,8 +44,12 @@ def pde_residual(model: nn.Module, coords: Tensor, alpha: float | Tensor = 0.1) 
     return u_t - alpha * u_xx
 
 
-def residual_loss(model: nn.Module, coords: Tensor, alpha: float | Tensor = 0.1,
-                  reduction: str = "mean") -> Tensor:
+def residual_loss(
+    model: nn.Module,
+    coords: Tensor,
+    alpha: float | Tensor = 0.1,
+    reduction: str = "mean",
+) -> Tensor:
     r = pde_residual(model, coords, alpha)
     sq = r.square()
     if reduction == "mean":
@@ -61,8 +65,15 @@ def residual_loss(model: nn.Module, coords: Tensor, alpha: float | Tensor = 0.1,
 # Boundary/Initial conditions
 # ---------------------------------------------------------------------------
 
-def _unit_samples(n: int, d: int, *, method: str, device: torch.device | str, dtype: Optional[torch.dtype],
-                  seed: Optional[int] = None) -> Tensor:
+def _unit_samples(
+    n: int,
+    d: int,
+    *,
+    method: str,
+    device: torch.device | str,
+    dtype: torch.dtype | None,
+    seed: int | None = None,
+) -> Tensor:
     if dtype is None:
         dtype = torch.get_default_dtype()
     if method == "sobol":
@@ -74,11 +85,18 @@ def _unit_samples(n: int, d: int, *, method: str, device: torch.device | str, dt
         return torch.rand(n, d, device=device, dtype=dtype)
     raise ValueError("method must be 'sobol' or 'uniform'")
 
+
 def _as_tensor(x: float | Tensor, *, device: torch.device | str, dtype: torch.dtype) -> Tensor:
     return x if torch.is_tensor(x) else torch.tensor(x, device=device, dtype=dtype)
 
 
-def sine_ic(x: Tensor, *, x_left: float = 0.0, x_right: float = 1.0, amplitude: float | Tensor = 1.0) -> Tensor:
+def sine_ic(
+    x: Tensor,
+    *,
+    x_left: float = 0.0,
+    x_right: float = 1.0,
+    amplitude: float | Tensor = 1.0,
+) -> Tensor:
     L = (x_right - x_left)
     k = torch.pi / _as_tensor(L, device=x.device, dtype=x.dtype)
     A = _as_tensor(amplitude, device=x.device, dtype=x.dtype)
@@ -86,11 +104,14 @@ def sine_ic(x: Tensor, *, x_left: float = 0.0, x_right: float = 1.0, amplitude: 
 
 
 def bc_ic_targets(
-    x: Tensor, t: Tensor,
-    *, x_left: float, x_right: float,
+    x: Tensor,
+    t: Tensor,
+    *,
+    x_left: float,
+    x_right: float,
     bc_left: float | Callable[[Tensor], Tensor] = 0.0,
     bc_right: float | Callable[[Tensor], Tensor] = 0.0,
-    ic: Optional[Callable[[Tensor], Tensor]] = None,
+    ic: Callable[[Tensor], Tensor] | None = None,
 ) -> tuple[Tensor, Tensor, Tensor]:
     if ic is None:
         u0 = sine_ic(x, x_left=x_left, x_right=x_right)
@@ -117,12 +138,12 @@ def boundary_loss(
     n_boundary: int = 256,
     n_initial: int = 512,
     *,  # new keyword‑only options (backwards‑compatible defaults)
-    dtype: Optional[torch.dtype] = None,
+    dtype: torch.dtype | None = None,
     method: str = "sobol",
-    seed: Optional[int] = None,
+    seed: int | None = None,
     bc_left: float | Callable[[Tensor], Tensor] = 0.0,
     bc_right: float | Callable[[Tensor], Tensor] = 0.0,
-    ic: Optional[Callable[[Tensor], Tensor]] = None,
+    ic: Callable[[Tensor], Tensor] | None = None,
     w_boundary: float = 1.0,
     w_initial: float = 1.0,
 ) -> Tensor:
@@ -152,8 +173,10 @@ def boundary_loss(
 
     # ---- Initial condition samples at t=0 ----
     if n_initial > 0:
-        u = _unit_samples(n_initial, 1, method=method, device=device, dtype=dtype,
-                          seed=None if seed is None else seed + 7)
+        u = _unit_samples(
+            n_initial, 1, method=method, device=device, dtype=dtype,
+            seed=None if seed is None else seed + 7
+        )
         x = x_left + u * (x_right - x_left)           # (Ni,1)
         ic_coords = torch.cat([x, torch.zeros_like(x)], dim=1)  # t=0
         _, _, target_ic = bc_ic_targets(
@@ -184,9 +207,15 @@ class Interval1D:
         return float(self.x_right - self.x_left)
 
 
-def sine_solution(x: Tensor, t: Tensor, alpha: float | Tensor = 0.1,
-                  *, x_left: float = 0.0, x_right: float = 1.0,
-                  amplitude: float | Tensor = 1.0) -> Tensor:
+def sine_solution(
+    x: Tensor,
+    t: Tensor,
+    alpha: float | Tensor = 0.1,
+    *,
+    x_left: float = 0.0,
+    x_right: float = 1.0,
+    amplitude: float | Tensor = 1.0,
+) -> Tensor:
     L = (x_right - x_left)
     k = torch.pi / _as_tensor(L, device=x.device, dtype=x.dtype)  # spatial wavenumber
     A = _as_tensor(amplitude, device=x.device, dtype=x.dtype)
