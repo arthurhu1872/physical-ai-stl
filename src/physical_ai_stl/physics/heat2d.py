@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
 
 import torch
 from torch import Tensor
@@ -89,11 +89,11 @@ def bc_ic_heat2d(
     t_max: float = 1.0,
     *,
     device: torch.device | str = "cpu",
-    dtype: Optional[torch.dtype] = None,
+    dtype: torch.dtype | None = None,
     n_boundary: int = 512,
     n_initial: int = 512,
-    ic: Optional[Callable[[Tensor, Tensor], Tensor]] = None,
-    boundary_split: Optional[tuple[float, float, float, float]] = None,
+    ic: Callable[[Tensor, Tensor], Tensor] | None = None,
+    boundary_split: tuple[float, float, float, float] | None = None,
 ) -> Tensor:
     if dtype is None:
         dtype = torch.get_default_dtype()
@@ -103,14 +103,35 @@ def bc_ic_heat2d(
     # ------------------- Boundary: u=0 on all spatial faces -------------------
     if sample_boundary_2d is not None:
         bc_coords = sample_boundary_2d(
-            n_boundary, dom.x_min, dom.x_max, dom.y_min, dom.y_max, dom.t_min, dom.t_max,
-            method="sobol", device=device, dtype=dtype, split=boundary_split
+            n_boundary,
+            dom.x_min,
+            dom.x_max,
+            dom.y_min,
+            dom.y_max,
+            dom.t_min,
+            dom.t_max,
+            method="sobol",
+            device=device,
+            dtype=dtype,
+            split=boundary_split,
         )
     else:  # fallback: uniform RNG
-        t = torch.rand((n_boundary, 1), device=device, dtype=dtype) * (dom.t_max - dom.t_min) + dom.t_min
+        t = (
+            torch.rand((n_boundary, 1), device=device, dtype=dtype)
+            * (dom.t_max - dom.t_min)
+            + dom.t_min
+        )
         sides = torch.randint(0, 4, (n_boundary, 1), device=device)
-        xb = torch.rand((n_boundary, 1), device=device, dtype=dtype) * (dom.x_max - dom.x_min) + dom.x_min
-        yb = torch.rand((n_boundary, 1), device=device, dtype=dtype) * (dom.y_max - dom.y_min) + dom.y_min
+        xb = (
+            torch.rand((n_boundary, 1), device=device, dtype=dtype)
+            * (dom.x_max - dom.x_min)
+            + dom.x_min
+        )
+        yb = (
+            torch.rand((n_boundary, 1), device=device, dtype=dtype)
+            * (dom.y_max - dom.y_min)
+            + dom.y_min
+        )
         xb[sides == 0] = dom.x_min
         xb[sides == 1] = dom.x_max
         yb[sides == 2] = dom.y_min
@@ -139,7 +160,14 @@ def bc_ic_heat2d(
 # Optional: exact Dirichlet satisfaction via an output‑space mask
 # -----------------------------------------------------------------------------
 
-def make_dirichlet_mask(x_min: float, x_max: float, y_min: float, y_max: float, *, pow: int = 1) -> Callable[[Tensor], Tensor]:
+def make_dirichlet_mask(
+    x_min: float,
+    x_max: float,
+    y_min: float,
+    y_max: float,
+    *,
+    pow: int = 1,
+) -> Callable[[Tensor], Tensor]:
     def mask(coords: Tensor) -> Tensor:
         x = coords[:, 0:1]
         y = coords[:, 1:2]
@@ -149,6 +177,7 @@ def make_dirichlet_mask(x_min: float, x_max: float, y_min: float, y_max: float, 
         if pow != 1:
             m = m.pow(pow)
         return m
+
     return mask
 
 
