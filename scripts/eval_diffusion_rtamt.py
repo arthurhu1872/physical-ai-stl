@@ -119,7 +119,7 @@ def _run(cmd: Iterable[str]) -> tuple[int, str, str]:
         return proc.returncode, proc.stdout, proc.stderr
     except FileNotFoundError:
         return 127, "", ""
-    except Exception as e:  # pragma: no cover
+    except Exception as e:  # pragma: no cover - extremely rare on CI
         return 1, "", f"{e.__class__.__name__}: {e}"
 
 
@@ -128,13 +128,14 @@ def _install_hint(dep: Dep) -> str | None:
         # Special-cases with extra context
         if dep.dist == "torch":
             return ("pip install torch  "
-                    "(see https://pytorch.org/get-started/locally/ for CUDA/ROCm/CPU wheels)")
+                    "(or use Makefile: `make install-torch-cpu` / `make install-torch-cu121`; "
+                    "see https://pytorch.org/get-started/locally/)")
         if dep.dist == "moonlight":
             return "pip install moonlight  (requires Java 21+; verify `java -version`)"
         if dep.dist == "spatial-spec":
             return "pip install spatial-spec  (optional: install MONA + `ltlf2dfa`; Windows not supported)"
         if dep.dist == "nvidia-physicsnemo":
-            return "pip install nvidia-physicsnemo  (optional extras: `[all]` / `[dev]`)"
+            return "pip install nvidia-physicsnemo  (see docs for optional `[all]` extras)"
         # Default hint
         return f"pip install {dep.dist}"
     return None
@@ -320,8 +321,8 @@ def _probe(dep: Dep, do_import: bool) -> ProbeResult:
         extra=extra,
     )
 
-    # Attach domain-specific diagnostics (run even if package isn't installed to surface prerequisites)
-    if dep.post_check:
+    # Attach domain-specific diagnostics
+    if dep.post_check and present:
         try:
             dep.post_check(result, do_import)
         except Exception as e:  # pragma: no cover
@@ -348,7 +349,7 @@ CORE: list[Dep] = [
     Dep("PhysicsNeMo", modules=("physicsnemo",), dist="nvidia-physicsnemo", required=True),
     Dep(
         "SpaTiaL (spatial-spec)",
-        modules=("spatial",),
+        modules=("spatial_spec",),
         dist="spatial-spec",
         required=True,
         post_check=_spatial_extra,
@@ -411,30 +412,28 @@ def _print_human(
 
     # Selected extra diagnostics
     _, torch_res = results["PyTorch"]
-    if torch_res.extra:
+    if torch_res.present and torch_res.extra:
         print("\nPyTorch details:")
         for k in sorted(torch_res.extra.keys()):
             print(f"  {k:<18}: {torch_res.extra[k]}")
 
     _, moon_res = results["MoonLight (STREL)"]
-    if moon_res.extra:
+    if moon_res.present and moon_res.extra:
         print("\nMoonLight extras:")
         for k in ("java", "java_version", "java_ok_for_moonlight"):
             if k in moon_res.extra and moon_res.extra[k]:
                 print(f"  {k:<18}: {moon_res.extra[k]}")
 
     _, spat_res = results["SpaTiaL (spatial-spec)"]
-    if spat_res.extra:
+    if spat_res.present and spat_res.extra:
         print("\nSpaTiaL extras:")
         for k in ("ltlf2dfa", "mona", "windows_note"):
             if k in spat_res.extra and spat_res.extra[k]:
                 print(f"  {k:<18}: {spat_res.extra[k]}")
 
-    # Python/platform + Python minimum per Neuromancer (>=3.9)
+    # Python/platform
     print("\nPython:", sys.version.replace("\n", " "))
     print("Platform:", platform.platform())
-    if sys.version_info < (3, 9):
-        print("WARNING: Python 3.9+ recommended (Neuromancer requires Python >= 3.9)")
 
 
 def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool) -> None:
@@ -460,7 +459,7 @@ def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool)
 
     # Append additional diagnostics in fenced blocks
     _, torch_res = results["PyTorch"]
-    if torch_res.extra:
+    if torch_res.present and torch_res.extra:
         print("\n<details><summary>PyTorch details</summary>\n")
         print("```text")
         for k in sorted(torch_res.extra):
@@ -469,7 +468,7 @@ def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool)
         print("</details>")
 
     _, moon_res = results["MoonLight (STREL)"]
-    if moon_res.extra:
+    if moon_res.present and moon_res.extra:
         print("\n<details><summary>MoonLight extras</summary>\n")
         print("```text")
         for k in sorted(moon_res.extra):
@@ -478,7 +477,7 @@ def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool)
         print("</details>")
 
     _, spat_res = results["SpaTiaL (spatial-spec)"]
-    if spat_res.extra:
+    if spat_res.present and spat_res.extra:
         print("\n<details><summary>SpaTiaL extras</summary>\n")
         print("```text")
         for k in sorted(spat_res.extra):
@@ -489,8 +488,6 @@ def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool)
     print("\n```text")
     print("Python:", sys.version.replace("\\n", " "))
     print("Platform:", platform.platform())
-    if sys.version_info < (3, 9):
-        print("WARNING: Python 3.9+ recommended (Neuromancer requires Python >= 3.9)")
     print("```")
 
 
@@ -508,14 +505,13 @@ def _print_json(results: dict[str, tuple[Dep, ProbeResult]]) -> None:
     payload["_env"] = {
         "python": sys.version,
         "platform": platform.platform(),
-        "py39_plus": sys.version_info >= (3, 9),
     }
     print(json.dumps(payload, indent=2, sort_keys=True))
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Quick summary of required dependencies and their availability."
+        description="Quick summary of optional dependencies and their availability."
     )
     p.add_argument("--md", action="store_true", help="print a Markdown table")
     p.add_argument("--json", action="store_true", help="print JSON")
