@@ -7,7 +7,7 @@ import importlib
 import math
 from dataclasses import is_dataclass, fields as dataclass_fields
 from types import ModuleType
-from typing import Any, Dict, Optional
+from typing import Any
 
 import pytest
 
@@ -15,7 +15,7 @@ import pytest
 MOD_PATH = "physical_ai_stl.frameworks.neuromancer_stl_demo"
 
 
-def _try_import_demo() -> Optional[ModuleType]:
+def _try_import_demo() -> ModuleType | None:
     try:
         return importlib.import_module(MOD_PATH)
     except Exception:
@@ -70,7 +70,7 @@ def test_import_and_tiny_run_smoke() -> None:
     assert is_dataclass(DemoConfig)
 
     # Build a tiny, CPU-only config (prefer small explicit values if those fields exist).
-    cfg_kwargs: Dict[str, Any] = {}
+    cfg_kwargs: dict[str, Any] = {}
     names = {f.name for f in dataclass_fields(DemoConfig)}
     if "epochs" in names:
         cfg_kwargs["epochs"] = 2
