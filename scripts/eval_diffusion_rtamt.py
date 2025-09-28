@@ -1,6 +1,39 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+"""
+scripts/check_env.py
+
+Purpose
+-------
+One-file, zero-dependency environment check tailored to this repository's goals:
+- Physics-based ML frameworks: Neuromancer, TorchPhysics, NVIDIA PhysicsNeMo
+- STL/STREL tooling: RTAMT, MoonLight (STREL), SpaTiaL
+
+Design priorities (in order):
+1) Meet the lab's requirements exactly (probe the specific stacks + prerequisites)
+2) Be fast and resource-light by default (no heavy imports unless requested)
+3) Produce friendly, reproducible output (human table, Markdown, or JSON)
+
+Usage
+-----
+  # Human table (fast):
+  python scripts/check_env.py
+
+  # Markdown table with extras (great for README/issues):
+  python scripts/check_env.py --md --extended
+
+  # JSON for tooling/CI:
+  python scripts/check_env.py --json
+
+  # Deeper GPU details via torch (optional, slower):
+  python scripts/check_env.py --import
+
+Exit status
+-----------
+Returns 0 if all core packages are present, else 1.  (CI can fail fast on missing deps.)
+"""
+
 import argparse
 import dataclasses
 import importlib
@@ -8,7 +41,7 @@ import importlib.util
 import json
 import platform
 import re
-import shutil as _shutil
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable, Iterable
@@ -34,13 +67,12 @@ class ProbeResult:
 
 @dataclasses.dataclass
 class Dep:
-    display: str                      # friendly name to show
-    modules: tuple[str, ...]          # python import names to probe (first is canonical)
-    dist: str | None = None           # PyPI distribution name for version lookup / pip hint
-    required: bool = False            # whether this is part of the core set
-    platforms: tuple[str, ...] | None = None  # limit requirement to specific OSes (e.g., ("Linux",))
+    display: str                 # friendly name to show
+    modules: tuple[str, ...]     # python import names to probe (first is canonical)
+    dist: str | None = None      # PyPI distribution name for version lookup / pip hint
+    required: bool = False       # for exit code; 'core optional' set True
     post_check: Callable[[ProbeResult, bool], None] | None = None  # augment diagnostics
-    note: str | None = None           # extra note to display
+    note: str | None = None      # extra note to display
 
     def canonical_module(self) -> str:
         return self.modules[0]
@@ -87,27 +119,8 @@ def _run(cmd: Iterable[str]) -> tuple[int, str, str]:
         return proc.returncode, proc.stdout, proc.stderr
     except FileNotFoundError:
         return 127, "", ""
-    except Exception as e:  # pragma: no cover - extremely rare on CI
+    except Exception as e:  # pragma: no cover
         return 1, "", f"{e.__class__.__name__}: {e}"
-
-
-def _parse_java_version(text: str) -> str | None:
-    m = re.search(r'version\s+"([\d.]+)"', text)
-    return m.group(1) if m else None
-
-
-def _version_tuple(s: str) -> tuple[int, ...]:
-    nums = re.findall(r"\d+", s)
-    return tuple(int(n) for n in nums) if nums else (0,)
-
-
-def _compare_versions(found: str, required: str) -> int:
-    f, r = _version_tuple(found), _version_tuple(required)
-    # Compare lexicographically with padding
-    L = max(len(f), len(r))
-    f += (0,) * (L - len(f))
-    r += (0,) * (L - len(r))
-    return (f > r) - (f < r)
 
 
 def _install_hint(dep: Dep) -> str | None:
@@ -115,25 +128,32 @@ def _install_hint(dep: Dep) -> str | None:
         # Special-cases with extra context
         if dep.dist == "torch":
             return ("pip install torch  "
-                    "(or use Makefile: `make install-torch-cpu` / `make install-torch-cu121`; "
-                    "see https://pytorch.org/get-started/locally/)")
+                    "(see https://pytorch.org/get-started/locally/ for CUDA/ROCm/CPU wheels)")
         if dep.dist == "moonlight":
             return "pip install moonlight  (requires Java 21+; verify `java -version`)"
         if dep.dist == "spatial-spec":
             return "pip install spatial-spec  (optional: install MONA + `ltlf2dfa`; Windows not supported)"
         if dep.dist == "nvidia-physicsnemo":
-            return "pip install nvidia-physicsnemo  (use `[all]` extras if needed)"
+            return "pip install nvidia-physicsnemo  (optional extras: `[all]` / `[dev]`)"
         # Default hint
         return f"pip install {dep.dist}"
     return None
 
 
-# -------------------------- domain-specific checks --------------------------
+def _parse_java_version(text: str) -> str | None:
+    m = re.search(r'version\s+"([\d.]+)"', text)
+    return m.group(1) if m else None
 
 
-def _accel_extra(result: ProbeResult, do_import: bool) -> None:
+def _cuda_extra(result: ProbeResult, do_import: bool) -> None:
+    """
+    Summarize accelerator stack state.
+    - NVIDIA: nvidia-smi and nvcc
+    - AMD: rocm-smi and hipcc
+    - Optionally PyTorch’s CUDA/ROCm view when --import is set
+    """
     # NVIDIA
-    smi = _shutil.which("nvidia-smi")
+    smi = shutil.which("nvidia-smi")
     if smi:
         code, out, err = _run([smi, "--query-gpu=name,driver_version,cuda_version", "--format=csv,noheader"])
         if code == 0:
@@ -161,7 +181,7 @@ def _accel_extra(result: ProbeResult, do_import: bool) -> None:
     else:
         result.extra["nvidia_smi"] = "not found"
 
-    nvcc = _shutil.which("nvcc")
+    nvcc = shutil.which("nvcc")
     if nvcc:
         code, out, err = _run([nvcc, "--version"])
         text = (out or err or "").strip()
@@ -171,7 +191,7 @@ def _accel_extra(result: ProbeResult, do_import: bool) -> None:
         result.extra["nvcc"] = "not found"
 
     # AMD ROCm
-    rocmsmi = _shutil.which("rocm-smi")
+    rocmsmi = shutil.which("rocm-smi")
     if rocmsmi:
         code, out, err = _run([rocmsmi, "--showdriverversion"])
         ver = None
@@ -184,7 +204,7 @@ def _accel_extra(result: ProbeResult, do_import: bool) -> None:
     else:
         result.extra["rocm_smi"] = "not found"
 
-    hipcc = _shutil.which("hipcc")
+    hipcc = shutil.which("hipcc")
     if hipcc:
         code, out, err = _run([hipcc, "--version"])
         m = re.search(r"HIP version:\s*([\d.]+)", (out or err or ""))
@@ -229,7 +249,7 @@ def _accel_extra(result: ProbeResult, do_import: bool) -> None:
 
 
 def _moonlight_extra(result: ProbeResult, do_import: bool) -> None:  # noqa: ARG001
-    java = _shutil.which("java")
+    java = shutil.which("java")
     if not java:
         result.extra["java"] = "not found in PATH"
         return
@@ -263,7 +283,7 @@ def _spatial_extra(result: ProbeResult, do_import: bool) -> None:  # noqa: ARG00
     except Exception:
         result.extra["ltlf2dfa"] = "missing"
     # MONA binary
-    mona = _shutil.which("mona")
+    mona = shutil.which("mona")
     result.extra["mona"] = mona or "not found in PATH"
     # Windows caveat per project docs
     if platform.system() == "Windows":
@@ -274,12 +294,11 @@ def _probe(dep: Dep, do_import: bool) -> ProbeResult:
     present = any(_find_spec(m) for m in dep.modules)
     imported = False
     msg = "OK" if present else "not found"
-    exc: BaseException | None = None
-
     if not present:
         hint = _install_hint(dep)
         if hint:
             msg = f"not found — {hint}"
+    exc: BaseException | None = None
 
     if do_import and present:
         imported = False
@@ -301,8 +320,8 @@ def _probe(dep: Dep, do_import: bool) -> ProbeResult:
         extra=extra,
     )
 
-    # Attach domain-specific diagnostics
-    if dep.post_check and present:
+    # Attach domain-specific diagnostics (run even if package isn't installed to surface prerequisites)
+    if dep.post_check:
         try:
             dep.post_check(result, do_import)
         except Exception as e:  # pragma: no cover
@@ -313,27 +332,9 @@ def _probe(dep: Dep, do_import: bool) -> ProbeResult:
 
 # ------------------------------- inventory ----------------------------------
 
-# Minimum versions aligned with this repo's requirements files.
-MIN_VERS = {
-    "rtamt": "0.3.5",
-    "moonlight": "0.3.1",
-    "neuromancer": "1.5.4",
-    "torchphysics": "1.0.4",
-    "nvidia-physicsnemo": "1.2.0",  # Linux-only in requirements-extra
-    "spatial-spec": "0.1.1",
-    # Convenience libraries
-    "numpy": "1.26.0",
-    "matplotlib": "3.10.0",
-    "tqdm": "4.67.1",
-    "PyYAML": "6.0.2",
-    # SciPy min is Python-dependent; checked later
-}
 
-# Python version required by pyproject.toml
-PY_MIN = (3, 10)
-
-CORE_BASE: list[Dep] = [
-    Dep("PyTorch", modules=("torch",), dist="torch", required=True, post_check=_accel_extra),
+CORE: list[Dep] = [
+    Dep("PyTorch", modules=("torch",), dist="torch", required=True, post_check=_cuda_extra),
     Dep("RTAMT (STL)", modules=("rtamt",), dist="rtamt", required=True),
     Dep(
         "MoonLight (STREL)",
@@ -344,16 +345,10 @@ CORE_BASE: list[Dep] = [
     ),
     Dep("Neuromancer", modules=("neuromancer",), dist="neuromancer", required=True),
     Dep("TorchPhysics", modules=("torchphysics",), dist="torchphysics", required=True),
-    Dep(
-        "PhysicsNeMo",
-        modules=("physicsnemo",),
-        dist="nvidia-physicsnemo",
-        required=True,
-        platforms=("Linux",),  # required only on Linux in this repo
-    ),
+    Dep("PhysicsNeMo", modules=("physicsnemo",), dist="nvidia-physicsnemo", required=True),
     Dep(
         "SpaTiaL (spatial-spec)",
-        modules=("spatial_spec",),
+        modules=("spatial",),
         dist="spatial-spec",
         required=True,
         post_check=_spatial_extra,
@@ -371,34 +366,11 @@ EXTRA: list[Dep] = [
 ]
 
 
-def _effective_core() -> list[Dep]:
-    osname = platform.system()
-    out: list[Dep] = []
-    for d in CORE_BASE:
-        if d.platforms is None or osname in d.platforms:
-            out.append(d)
-    return out
-
-
-def _row(dep: Dep, pr: ProbeResult, ascii_only: bool, required_here: bool, min_ver: str | None) -> list[str]:
+def _row(dep: Dep, pr: ProbeResult, ascii_only: bool) -> list[str]:
     ok = pr.present
     check = ("OK" if ascii_only else "✅") if ok else ("MISSING" if ascii_only else "❌")
     ver = pr.version or ""
     msg = pr.message
-
-    # Version ceiling/floor checks (floor only for now)
-    if ok and min_ver and pr.version:
-        try:
-            if _compare_versions(pr.version, min_ver) < 0:
-                check = "⚠️" if not ascii_only else "WARN"
-                msg = f"outdated (< {min_ver}); consider upgrade"
-        except Exception:
-            pass
-
-    # If not required on this OS, annotate
-    if dep.platforms and platform.system() not in dep.platforms:
-        msg = (msg + " [not required on this OS]").strip()
-
     return [dep.display, check, ver, msg]
 
 
@@ -423,89 +395,58 @@ def _print_human(
     print("Environment check:\n")
     headers = ["Package", "OK", "Version", "Notes"]
 
-    core = _effective_core()
     core_rows: list[list[str]] = []
-    for d in CORE_BASE:
+    for d in CORE:
         dep, pr = results[d.display]
-        min_ver = MIN_VERS.get(dep.dist or "", None)
-        core_rows.append(_row(dep, pr, ascii_only, d in core, min_ver))
+        core_rows.append(_row(dep, pr, ascii_only))
     print(_format_table(core_rows, headers))
 
     if extended:
         extra_rows: list[list[str]] = []
         for d in EXTRA:
             dep, pr = results[d.display]
-            min_ver = MIN_VERS.get(dep.dist or "", None)
-            extra_rows.append(_row(dep, pr, ascii_only, True, min_ver))
+            extra_rows.append(_row(dep, pr, ascii_only))
         print("\nExtras:\n")
         print(_format_table(extra_rows, headers))
 
     # Selected extra diagnostics
     _, torch_res = results["PyTorch"]
-    if torch_res.present and torch_res.extra:
+    if torch_res.extra:
         print("\nPyTorch details:")
         for k in sorted(torch_res.extra.keys()):
             print(f"  {k:<18}: {torch_res.extra[k]}")
 
     _, moon_res = results["MoonLight (STREL)"]
-    if moon_res.present and moon_res.extra:
+    if moon_res.extra:
         print("\nMoonLight extras:")
         for k in ("java", "java_version", "java_ok_for_moonlight"):
             if k in moon_res.extra and moon_res.extra[k]:
                 print(f"  {k:<18}: {moon_res.extra[k]}")
 
     _, spat_res = results["SpaTiaL (spatial-spec)"]
-    if spat_res.present and spat_res.extra:
+    if spat_res.extra:
         print("\nSpaTiaL extras:")
         for k in ("ltlf2dfa", "mona", "windows_note"):
             if k in spat_res.extra and spat_res.extra[k]:
                 print(f"  {k:<18}: {spat_res.extra[k]}")
 
-    # Python/platform
+    # Python/platform + Python minimum per Neuromancer (>=3.9)
     print("\nPython:", sys.version.replace("\n", " "))
     print("Platform:", platform.platform())
-
-    # Simple "what next" suggestions for missing core pieces
-    missing_cmds: list[str] = []
-    for d in core:
-        dep, pr = results[d.display]
-        if not pr.present:
-            hint = _install_hint(dep)
-            if hint:
-                missing_cmds.append(hint)
-    # System prereqs for MoonLight / SpaTiaL
-    if results["MoonLight (STREL)"][1].present:
-        mres = results["MoonLight (STREL)"][1]
-        if mres.extra.get("java_ok_for_moonlight") == "False":
-            missing_cmds.append("Install Java 21+ (e.g., Temurin/OpenJDK 21) and ensure `java -version` reports 21 or higher.")
-    if results["SpaTiaL (spatial-spec)"][1].present:
-        sres = results["SpaTiaL (spatial-spec)"][1]
-        if sres.extra.get("mona", "") in ("", "not found in PATH"):
-            missing_cmds.append("Install MONA (e.g., `sudo apt install mona`) and ensure `mona` is in PATH.")
-        if sres.extra.get("ltlf2dfa") == "missing" and platform.system() != "Windows":
-            missing_cmds.append("pip install ltlf2dfa")
-
-    if missing_cmds:
-        print("\nNext steps:\n  - " + "\n  - ".join(missing_cmds))
+    if sys.version_info < (3, 9):
+        print("WARNING: Python 3.9+ recommended (Neuromancer requires Python >= 3.9)")
 
 
 def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool) -> None:
     def md_row(dep: Dep, pr: ProbeResult) -> str:
-        min_ver = MIN_VERS.get(dep.dist or "", None)
         check = "✅" if pr.present else "❌"
         ver = pr.version or ""
-        note = pr.message
-        if pr.present and min_ver and pr.version and _compare_versions(pr.version, min_ver) < 0:
-            note = f"outdated (< {min_ver}); consider upgrade"
-            check = "⚠️"
-        if dep.platforms and platform.system() not in dep.platforms:
-            note = (note + " [not required on this OS]").strip()
-        return f"| `{dep.display}` | {check} | `{ver}` | {note} |"
+        return f"| `{dep.display}` | {check} | `{ver}` | {pr.message} |"
 
     print("### Environment check\n")
     print("| Package | OK | Version | Notes |")
     print("|---|:--:|:--:|---|")
-    for d in CORE_BASE:
+    for d in CORE:
         dep, pr = results[d.display]
         print(md_row(dep, pr))
 
@@ -519,7 +460,7 @@ def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool)
 
     # Append additional diagnostics in fenced blocks
     _, torch_res = results["PyTorch"]
-    if torch_res.present and torch_res.extra:
+    if torch_res.extra:
         print("\n<details><summary>PyTorch details</summary>\n")
         print("```text")
         for k in sorted(torch_res.extra):
@@ -528,7 +469,7 @@ def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool)
         print("</details>")
 
     _, moon_res = results["MoonLight (STREL)"]
-    if moon_res.present and moon_res.extra:
+    if moon_res.extra:
         print("\n<details><summary>MoonLight extras</summary>\n")
         print("```text")
         for k in sorted(moon_res.extra):
@@ -537,7 +478,7 @@ def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool)
         print("</details>")
 
     _, spat_res = results["SpaTiaL (spatial-spec)"]
-    if spat_res.present and spat_res.extra:
+    if spat_res.extra:
         print("\n<details><summary>SpaTiaL extras</summary>\n")
         print("```text")
         for k in sorted(spat_res.extra):
@@ -548,6 +489,8 @@ def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool)
     print("\n```text")
     print("Python:", sys.version.replace("\\n", " "))
     print("Platform:", platform.platform())
+    if sys.version_info < (3, 9):
+        print("WARNING: Python 3.9+ recommended (Neuromancer requires Python >= 3.9)")
     print("```")
 
 
@@ -565,14 +508,14 @@ def _print_json(results: dict[str, tuple[Dep, ProbeResult]]) -> None:
     payload["_env"] = {
         "python": sys.version,
         "platform": platform.platform(),
-        "requires_python_min": PY_MIN,
+        "py39_plus": sys.version_info >= (3, 9),
     }
     print(json.dumps(payload, indent=2, sort_keys=True))
 
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Quick summary of dependencies and their availability for physical-ai-stl."
+        description="Quick summary of required dependencies and their availability."
     )
     p.add_argument("--md", action="store_true", help="print a Markdown table")
     p.add_argument("--json", action="store_true", help="print JSON")
@@ -586,14 +529,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--plain", action="store_true", help="ASCII only (no emoji)")
     args = p.parse_args(argv)
 
-    # First, check Python version against repo's requirement
-    py_ok = sys.version_info >= PY_MIN
-    if not py_ok:
-        print(f"⚠️  Python {PY_MIN[0]}.{PY_MIN[1]}+ is recommended (found {sys.version.split()[0]}).")
-
     # Probe everything
     results: dict[str, tuple[Dep, ProbeResult]] = {}
-    for dep in CORE_BASE + EXTRA:
+    for dep in CORE + EXTRA:
         results[dep.display] = (dep, _probe(dep, args.do_import))
 
     if args.json:
@@ -603,10 +541,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         _print_human(results, ascii_only=args.plain, extended=args.extended)
 
-    # Exit code: 0 if all *effective* core deps are present, else 1
-    core = _effective_core()
-    missing = [d.display for d in core if not results[d.display][1].present]
-    return 0 if (not missing and py_ok) else 1
+    # Exit code: 0 if all required are present, else 1
+    missing = [d.display for d in CORE if not results[d.display][1].present]
+    return 0 if not missing else 1
 
 
 if __name__ == "__main__":
