@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import torch
-from torch import nn, Tensor
+from torch import Tensor, nn
 
 from ..models.mlp import MLP  # import kept for type hints/backwards compat
 
