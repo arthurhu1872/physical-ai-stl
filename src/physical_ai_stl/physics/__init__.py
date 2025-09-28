@@ -1,8 +1,8 @@
 # src/physical_ai_stl/physics/__init__.py
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
 import importlib
+from typing import Any, TYPE_CHECKING
 
 # ----- Lazily exposed submodules ------------------------------------------------
 
@@ -75,18 +75,18 @@ if TYPE_CHECKING:  # pragma: no cover
     from . import diffusion1d as diffusion1d  # noqa: F401
     from . import heat2d as heat2d  # noqa: F401
     from .diffusion1d import (  # noqa: F401
-        pde_residual,
-        residual_loss,
         boundary_loss,
         Interval1D,
+        make_dirichlet_mask_1d,
+        pde_residual,
+        residual_loss,
         sine_ic,
         sine_solution,
-        make_dirichlet_mask_1d,
     )
     from .heat2d import (  # noqa: F401
-        residual_heat2d,
         bc_ic_heat2d,
-        SquareDomain2D,
         gaussian_ic,
         make_dirichlet_mask,
+        residual_heat2d,
+        SquareDomain2D,
     )
