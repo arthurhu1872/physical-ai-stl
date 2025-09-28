@@ -1,3 +1,4 @@
+# ruff: noqa: I001
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -5,6 +6,8 @@ from dataclasses import dataclass
 
 import torch
 
+# Import used only for type hints; with `from __future__ import annotations`,
+# this import can be omitted at runtime, but keeping it is harmless.
 from ..models.mlp import MLP
 
 
