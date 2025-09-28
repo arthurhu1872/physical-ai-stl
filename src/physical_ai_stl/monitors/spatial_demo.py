@@ -13,7 +13,6 @@ except Exception:  # pragma: no cover - optional dependency path
 
 @dataclass(slots=True)
 class ToyScene:
-
     T: int = 50
     agent_speed: float = 0.35
     agent_radius: float = 0.30
@@ -30,9 +29,11 @@ def _build_spatial_objects(cfg: ToyScene):
     # Import here to avoid import errors when SpaTiaL isn't available.
     try:
         import numpy as np
-        from spatial.geometry import DynamicObject, StaticObject, Circle, PolygonCollection  # type: ignore
+        from spatial.geometry import Circle, DynamicObject, PolygonCollection, StaticObject  # type: ignore
     except Exception as e:  # pragma: no cover
-        raise RuntimeError("SpaTiaL not available – install with: `pip install spatial shapely lark-parser`") from e
+        raise RuntimeError(
+            "SpaTiaL not available – install with: `pip install spatial shapely lark-parser`"
+        ) from e
 
     agent = DynamicObject()
     # Build a single-circle collection per time step; this implements SpatialInterface.
@@ -48,7 +49,7 @@ def _build_spatial_objects(cfg: ToyScene):
     return {"agent": agent, "goal": goal}
 
 
-def _first_parsed(sp: "Spatial", candidates: list[str]):
+def _first_parsed(sp: Spatial, candidates: list[str]):
     for s in candidates:
         try:
             tree = sp.parse(s)
@@ -58,12 +59,16 @@ def _first_parsed(sp: "Spatial", candidates: list[str]):
             # Try the next spelling/variant
             pass
     # If we get here, re-raise a helpful message showing the attempted spellings.
-    raise ValueError("Could not parse any SpaTiaL formula; tried variants:\n" + "\n".join(candidates))
+    raise ValueError(
+        "Could not parse any SpaTiaL formula; tried variants:\n" + "\n".join(candidates)
+    )
 
 
 def evaluate_formula(cfg: ToyScene) -> float:
     if Spatial is None:
-        raise RuntimeError("SpaTiaL not available – install with: `pip install spatial shapely lark-parser`")
+        raise RuntimeError(
+            "SpaTiaL not available – install with: `pip install spatial shapely lark-parser`"
+        )
 
     # Build variables for SpaTiaL
     vars_map = _build_spatial_objects(cfg)
@@ -107,7 +112,9 @@ def evaluate_formula(cfg: ToyScene) -> float:
     try:
         return float(val)  # numpy scalar or python float
     except Exception as e:  # pragma: no cover - very unlikely
-        raise RuntimeError(f"Unexpected SpaTiaL return type: {type(val)} from formula: {formula_str}") from e
+        raise RuntimeError(
+            f"Unexpected SpaTiaL return type: {type(val)} from formula: {formula_str}"
+        ) from e
 
 
 def run_demo(T: int = 50) -> float:
