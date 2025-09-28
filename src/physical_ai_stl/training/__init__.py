@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
 import importlib
+from typing import Any, TYPE_CHECKING
 
 # Map of lazily importable submodules.
 _LAZY_MODULES = {
@@ -71,15 +71,15 @@ def __dir__() -> list[str]:  # pragma: no cover - trivial
 if TYPE_CHECKING:  # pragma: no cover
     from . import grids as grids  # noqa: F401
     from .grids import (  # noqa: F401
+        Box1D,
+        Box2D,
         grid1d,
         grid2d,
         grid3d,
-        spacing1d,
-        spacing2d,
-        sample_interior_1d,
-        sample_interior_2d,
         sample_boundary_1d,
         sample_boundary_2d,
-        Box1D,
-        Box2D,
+        sample_interior_1d,
+        sample_interior_2d,
+        spacing1d,
+        spacing2d,
     )
