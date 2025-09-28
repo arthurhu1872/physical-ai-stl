@@ -4,7 +4,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import torch
-from torch import nn, Tensor
 
 from ..models.mlp import MLP
 
@@ -13,7 +12,7 @@ from ..models.mlp import MLP
 # Autograd helpers
 # ---------------------------------------------------------------------------
 
-def _grad(y: Tensor, x: Tensor) -> Tensor:
+def _grad(y: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
     return torch.autograd.grad(y, x, grad_outputs=torch.ones_like(y), create_graph=True)[0]
 
 
@@ -21,13 +20,15 @@ def _grad(y: Tensor, x: Tensor) -> Tensor:
 # Core: PDE residual
 # ---------------------------------------------------------------------------
 
-def pde_residual(model: nn.Module, coords: Tensor, alpha: float | Tensor = 0.1) -> Tensor:
+def pde_residual(
+    model: torch.nn.Module, coords: torch.Tensor, alpha: float | torch.Tensor = 0.1
+) -> torch.Tensor:
     if coords.ndim != 2 or coords.shape[-1] != 2:
         raise ValueError("coords must have shape (N, 2) with columns [x, t]")
     coords = coords.requires_grad_(True)
 
     # Forward
-    u: Tensor = model(coords)  # (N,1)
+    u: torch.Tensor = model(coords)  # (N,1)
 
     # First derivatives
     du = _grad(u, coords)          # (N,2) -> [u_x, u_t]
@@ -44,11 +45,11 @@ def pde_residual(model: nn.Module, coords: Tensor, alpha: float | Tensor = 0.1) 
 
 
 def residual_loss(
-    model: nn.Module,
-    coords: Tensor,
-    alpha: float | Tensor = 0.1,
+    model: torch.nn.Module,
+    coords: torch.Tensor,
+    alpha: float | torch.Tensor = 0.1,
     reduction: str = "mean",
-) -> Tensor:
+) -> torch.Tensor:
     r = pde_residual(model, coords, alpha)
     sq = r.square()
     if reduction == "mean":
@@ -72,7 +73,7 @@ def _unit_samples(
     device: torch.device | str,
     dtype: torch.dtype | None,
     seed: int | None = None,
-) -> Tensor:
+) -> torch.Tensor:
     if dtype is None:
         dtype = torch.get_default_dtype()
     if method == "sobol":
@@ -85,17 +86,17 @@ def _unit_samples(
     raise ValueError("method must be 'sobol' or 'uniform'")
 
 
-def _as_tensor(x: float | Tensor, *, device: torch.device | str, dtype: torch.dtype) -> Tensor:
+def _as_tensor(x: float | torch.Tensor, *, device: torch.device | str, dtype: torch.dtype) -> torch.Tensor:
     return x if torch.is_tensor(x) else torch.tensor(x, device=device, dtype=dtype)
 
 
 def sine_ic(
-    x: Tensor,
+    x: torch.Tensor,
     *,
     x_left: float = 0.0,
     x_right: float = 1.0,
-    amplitude: float | Tensor = 1.0,
-) -> Tensor:
+    amplitude: float | torch.Tensor = 1.0,
+) -> torch.Tensor:
     L = (x_right - x_left)
     k = torch.pi / _as_tensor(L, device=x.device, dtype=x.dtype)
     A = _as_tensor(amplitude, device=x.device, dtype=x.dtype)
@@ -103,15 +104,15 @@ def sine_ic(
 
 
 def bc_ic_targets(
-    x: Tensor,
-    t: Tensor,
+    x: torch.Tensor,
+    t: torch.Tensor,
     *,
     x_left: float,
     x_right: float,
-    bc_left: float | Callable[[Tensor], Tensor] = 0.0,
-    bc_right: float | Callable[[Tensor], Tensor] = 0.0,
-    ic: Callable[[Tensor], Tensor] | None = None,
-) -> tuple[Tensor, Tensor, Tensor]:
+    bc_left: float | Callable[[torch.Tensor], torch.Tensor] = 0.0,
+    bc_right: float | Callable[[torch.Tensor], torch.Tensor] = 0.0,
+    ic: Callable[[torch.Tensor], torch.Tensor] | None = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     if ic is None:
         u0 = sine_ic(x, x_left=x_left, x_right=x_right)
     else:
@@ -128,7 +129,7 @@ def bc_ic_targets(
 
 
 def boundary_loss(
-    model: MLP | nn.Module,
+    model: MLP | torch.nn.Module,
     x_left: float = 0.0,
     x_right: float = 1.0,
     t_min: float = 0.0,
@@ -140,12 +141,12 @@ def boundary_loss(
     dtype: torch.dtype | None = None,
     method: str = "sobol",
     seed: int | None = None,
-    bc_left: float | Callable[[Tensor], Tensor] = 0.0,
-    bc_right: float | Callable[[Tensor], Tensor] = 0.0,
-    ic: Callable[[Tensor], Tensor] | None = None,
+    bc_left: float | Callable[[torch.Tensor], torch.Tensor] = 0.0,
+    bc_right: float | Callable[[torch.Tensor], torch.Tensor] = 0.0,
+    ic: Callable[[torch.Tensor], torch.Tensor] | None = None,
     w_boundary: float = 1.0,
     w_initial: float = 1.0,
-) -> Tensor:
+) -> torch.Tensor:
     if dtype is None:
         dtype = torch.get_default_dtype()
 
@@ -207,14 +208,14 @@ class Interval1D:
 
 
 def sine_solution(
-    x: Tensor,
-    t: Tensor,
-    alpha: float | Tensor = 0.1,
+    x: torch.Tensor,
+    t: torch.Tensor,
+    alpha: float | torch.Tensor = 0.1,
     *,
     x_left: float = 0.0,
     x_right: float = 1.0,
-    amplitude: float | Tensor = 1.0,
-) -> Tensor:
+    amplitude: float | torch.Tensor = 1.0,
+) -> torch.Tensor:
     L = (x_right - x_left)
     k = torch.pi / _as_tensor(L, device=x.device, dtype=x.dtype)  # spatial wavenumber
     A = _as_tensor(amplitude, device=x.device, dtype=x.dtype)
@@ -223,8 +224,8 @@ def sine_solution(
     return A * torch.exp(-alpha * (k ** 2) * t) * torch.sin(k * (x - x_left))
 
 
-def make_dirichlet_mask_1d(x_left: float = 0.0, x_right: float = 1.0) -> Callable[[Tensor], Tensor]:
-    def mask(coords: Tensor) -> Tensor:
+def make_dirichlet_mask_1d(x_left: float = 0.0, x_right: float = 1.0) -> Callable[[torch.Tensor], torch.Tensor]:
+    def mask(coords: torch.Tensor) -> torch.Tensor:
         if coords.ndim != 2 or coords.shape[-1] != 2:
             raise ValueError("coords must have shape (N, 2) with columns [x, t]")
         x = coords[:, 0:1]
@@ -232,13 +233,13 @@ def make_dirichlet_mask_1d(x_left: float = 0.0, x_right: float = 1.0) -> Callabl
     return mask
 
 
-class MaskedModel(nn.Module):
-    def __init__(self, base: nn.Module, mask: Callable[[Tensor], Tensor]) -> None:
+class MaskedModel(torch.nn.Module):
+    def __init__(self, base: torch.nn.Module, mask: Callable[[torch.Tensor], torch.Tensor]) -> None:
         super().__init__()
         self.base = base
         self.mask = mask
 
-    def forward(self, coords: Tensor) -> Tensor:  # pragma: no cover - thin wrapper
+    def forward(self, coords: torch.Tensor) -> torch.Tensor:  # pragma: no cover - thin wrapper
         return self.mask(coords) * self.base(coords)
 
 
