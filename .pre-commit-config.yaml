@@ -1,100 +1,144 @@
-# Pre-commit for a fast, reliable dev loop on this repo.
-# Focus: ruff (lint+format), codespell, and basic hygiene hooks.
+# Pre-commit: fast, reliable, and low-noise checks for this repo.
+# Order matters: formatters/fixers run before pure linters.
+# Primary tools: Ruff (lint + format), Codespell, and hygiene hooks.
+
+ci:
+  autofix_prs: false
+  autoupdate_schedule: monthly
 
 minimum_pre_commit_version: "3.7.0"
 
 default_language_version:
-  python: python3.11
+  python: python3
 
-# Don't waste cycles on generated/large artifacts.
+# Skip large/generated artifacts and caches to keep hooks snappy.
 exclude: >
   (?x)^(
     results/|
     figs/|
     data/|
-    .venv/|
-    build/|
     dist/|
-    .*\.egg-info/|
-    .*\.ipynb_checkpoints/|
-    .pytest_cache/|
+    build/|
+    reports/|
+    docs/_build/|
+    .mypy_cache/|
     .ruff_cache/|
-    __pycache__/|
-    .*\.np[yz]|
-    .*\.csv
+    .pytest_cache/|
+    .tox/|
+    .venv/|
+    venv/|
+    .*\.ipynb_checkpoints/|
+    .*__pycache__/|
+    .*\.egg-info/
   )
 
 repos:
-  # --- Core hygiene ----------------------------------------------------------
+  # --- Hygiene & quick structural checks ------------------------------------
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v6.0.0
     hooks:
-      - id: check-added-large-files
-        args: ["--maxkb=500"]
-      - id: check-ast
-      - id: check-case-conflict
-      - id: check-merge-conflict
-      - id: check-json
-      - id: check-toml
-      - id: check-yaml
       - id: end-of-file-fixer
       - id: trailing-whitespace
+        exclude_types: [markdown]
       - id: mixed-line-ending
-        args: ["--fix=lf"]
+        args: [--fix=lf]
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: detect-private-key
       - id: debug-statements
       - id: name-tests-test
-        args: ["--pytest-test-first"]
+        args: [--pytest-test-first]
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+  # Optionally protect main branches from direct commits.
+      - id: no-commit-to-branch
+        args: [--branch, main, --branch, master]
 
-  # --- Ruff: formatter + linter (fast) --------------------------------------
+  # --- Ruff: formatter + linter (ultra-fast, replaces black+isort+flake8) ---
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.13.2
     hooks:
-      - id: ruff
-        name: ruff (lint)
-        args:
-          - --fix
-          - --exit-non-zero-on-fix
-        files: ^(src|scripts|tests)/.*\.py$
+      # Lint and auto-fix (includes import sorting via rule I***).
+      - id: ruff-check
+        name: ruff (lint+fix)
+        args: [--fix]
+        types_or: [python, pyi, jupyter]
+      # Code formatter (Black-compatible).
       - id: ruff-format
         name: ruff (format)
-        files: ^(src|scripts|tests)/.*\.py$
+        types_or: [python, pyi, jupyter]
 
-  # --- Type checking (kept lightweight) -------------------------------------
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
+  # --- Markdown: format and keep tables/links tidy ---------------------------
+  - repo: https://github.com/hukkin/mdformat
+    rev: 0.7.22
     hooks:
-      - id: mypy
-        name: mypy (typed code only)
-        # Make mypy non-blocking initially; tighten later.
-        args: ["--ignore-missing-imports", "--install-types", "--non-interactive"]
+      - id: mdformat
+        name: mdformat (GFM + ruff for code fences)
+        types: [markdown]
         additional_dependencies:
-          - types-PyYAML
-          - numpy
-        files: ^src/.*\.py$
+          - mdformat-gfm
+          - mdformat-ruff
+          - ruff==0.13.2
 
-  # --- Spelling (domain-aware) ----------------------------------------------
+  # --- YAML style (beyond syntax-only check-yaml) ----------------------------
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.37.1
+    hooks:
+      - id: yamllint
+        args: [--strict]
+
+  # --- Spelling across text files -------------------------------------------
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.3.0
+    rev: v2.4.1
     hooks:
       - id: codespell
-        args:
-          - --ignore-words=.codespellignorewords.txt
-          - --skip=*.csv,*.npz,*.npy,results,figs,.venv
-          - -w
+        # Maintain a project-specific ignore list if needed.
+        args: ["--ignore-words=.codespellignorewords.txt"]
+        types: [text]
+        exclude: >
+          (?x)^(
+            .*\.lock$|
+            .*\.svg$|
+            .*min\.js$|
+            data/|
+            results/
+          )
 
-  # --- Notebooks (only if present; harmless otherwise) ----------------------
+  # --- Notebooks: strip output to keep diffs small ---------------------------
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.8.1
+    hooks:
+      - id: nbstripout
+        types: [jupyter]
+
+  # --- Notebooks: run codespell on markdown/code cells -----------------------
   - repo: https://github.com/nbQA-dev/nbQA
     rev: 1.9.1
     hooks:
       - id: nbqa
-        name: nbqa-ruff
-        args: ["ruff", "--fix"]
-        files: \.ipynb$
-      - id: nbqa
-        name: nbqa-ruff-format
-        args: ["ruff", "format"]
-        files: \.ipynb$
-      - id: nbqa
         name: nbqa-codespell
         args: ["codespell", "--ignore-words=.codespellignorewords.txt"]
         files: \.ipynb$
+
+  # --- Project metadata formatting -------------------------------------------
+  - repo: https://github.com/tox-dev/pyproject-fmt
+    rev: v2.6.0
+    hooks:
+      - id: pyproject-fmt
+
+  # --- Optional: static typing on push (kept light for speed) ----------------
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.2
+    hooks:
+      - id: mypy
+        name: mypy (push-only)
+        stages: [push]
+        files: ^(src|tests)/.*\.py$
+        args: ["--ignore-missing-imports"]
+        additional_dependencies:
+          - types-PyYAML
+          - numpy
