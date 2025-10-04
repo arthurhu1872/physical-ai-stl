@@ -1,8 +1,8 @@
 # ===================================================================
 # physical-ai-stl — repository .gitignore
-# Goal: keep commits lean, reproducible, and CI-friendly while avoiding
-#       accidental commits of large data, experiment artifacts, secrets,
-#       or local editor/system files.
+# Purpose: keep commits lean, reproducible, and CI-friendly while avoiding
+#          accidental commits of large data, experiment artifacts, secrets,
+#          or local editor/system files.
 # ===================================================================
 
 ########################
@@ -14,11 +14,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# C extensions / Cython debug (rare here, but safe to exclude)
+# Compiled extensions
 *.so
 cython_debug/
 
-# Test / coverage / tool caches
+# Test & coverage caches
 .pytest_cache/
 .coverage
 .coverage.*
@@ -29,37 +29,36 @@ htmlcov/
 .nox/
 .hypothesis/
 .pyre/
-.pytype/
 .mypy_cache/
-.pyright/
 .ruff_cache/
+.pytype/
 .pylint.d/
-.benchmarks/          # pytest-benchmark
 
-################################
-# 2) Packaging & build outputs #
-################################
+# Packaging / build artifacts
 build/
 dist/
-pip-wheel-metadata/
-*.egg-info/
+develop-eggs/
+downloads/
+eggs/
 .eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
 wheels/
 share/python-wheels/
+*.egg-info/
+.installed.cfg
 *.egg
 MANIFEST
-# PyInstaller
-*.manifest
-*.spec
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
+pip-wheel-metadata/
 
 #####################################
-# 3) Virtual envs & local env files #
+# 2) Environments & configuration   #
 #####################################
 
-# Virtual environments (prefer project-local .venv for speed)
+# Virtual environments
 .venv/
 venv/
 env/
@@ -67,9 +66,7 @@ ENV/
 __pypackages__/
 .conda/
 condaenv.*/
-
-# Python version managers
-.python-version        # pyenv
+.python-version    # pyenv
 
 # dotenv/direnv secrets (keep examples only)
 .env
@@ -81,52 +78,65 @@ condaenv.*/
 .envrc
 .direnv/
 
-########################################################
-# 4) Project artifacts (root-anchored, ML-specific)    #
-#    These are created by scripts/Makefile and common  #
-#    ML tooling; they often contain large binaries.    #
-########################################################
+# Common secret/credential files (defensive)
+secrets/
+*.pem
+*.key
+*.der
+*.crt
+*.p12
+*.pfx
+id_rsa*
+id_ecdsa*
+id_ed25519*
+*.keyring
+*.enc
+credentials.json
+token.json
+client_secret*.json
+
+###########################################
+# 3) Project outputs (experiments/results) #
+###########################################
+
+# Top‑level experiment/data/artifact dirs
 /results/
 /figs/
+/figures/
 /logs/
-/outputs/            # Hydra single-run default
-/multirun/           # Hydra multi-run sweeps
-/runs/               # TensorBoard / torch.utils.tensorboard
-/wandb/              # Weights & Biases (local run dir)
-/mlruns/             # MLflow local tracking dir
-/lightning_logs/     # PyTorch Lightning default log dir
-/tensorboard/        # Optional TB export dir
-/ray_results/        # Ray Tune sweeps (if used)
-
-# Experiment artifacts and checkpoints
+/outputs/
+/multirun/        # Hydra
+/runs/            # TensorBoard
+/wandb/
+/mlruns/          # MLflow
+/lightning_logs/
+/tensorboard/
+/ray_results/
 /artifacts/
 /checkpoints/
-/models/
-
-# Data staging (retain tiny samples or metadata via README)
-# If you must commit a small sample, place a README alongside it.
+/models/          # model weights/ckpts only
 /data/
 /datasets/
+
+# Keep lightweight readme markers in data trees
 !/data/README*
 !/data/*/README*
 !/datasets/README*
-!/datasets/*/README*
 
-# Temporary & cache directories
+# Scratch & temp
 /tmp/
-temp/
 tmp/
+temp/
 cache/
+caches/
 .caches/
 scratch/
-
-# Cluster / job runners
 slurm-*.out
 nohup.out
 
-#################################
-# 5) Editors, OS & misc clutter #
-#################################
+###########################
+# 4) OS / editor metadata #
+###########################
 
 # macOS / Windows
 .DS_Store
@@ -150,13 +160,12 @@ Desktop.ini
 .vim/
 *.sw?
 *~
-# Emacs backups/locks
-\#*\#
-.\#*
+\#*\#          # Emacs backup files
+.\#*            # Emacs lock files
 
-#############################
-# 6) Docs & site generators #
-#############################
+#################################
+# 5) Docs & notebook generators #
+#################################
 
 # Sphinx / MkDocs outputs
 docs/_build/
@@ -166,3 +175,31 @@ site/
 .ipynb_checkpoints/
 .ipython/
 .jupyter/
+jupyter_cache/
+
+# LaTeX aux files (scoped to docs/report/)
+docs/report/**/*.aux
+docs/report/**/*.bbl
+docs/report/**/*.blg
+docs/report/**/*.fdb_latexmk
+docs/report/**/*.fls
+docs/report/**/*.log
+docs/report/**/*.out
+docs/report/**/*.synctex.gz
+docs/report/**/texput.log
+# Pip logs (occasionally created on error)
+pip-delete-this-directory.txt
+pip-log.txt
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Type checker caches
+.pyright/
+
+# Benchmarks
+.benchmarks/
+
+# Keep nested dataset readmes too
+!/datasets/*/README*
