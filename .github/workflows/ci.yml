@@ -3,6 +3,7 @@ name: ci
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,20 +14,45 @@ concurrency:
 
 jobs:
   lint:
+    name: Lint & spellcheck
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/ruff-action@v3
-        with:
-          # Run at repo root so ruff discovers pyproject.toml
-          src: .
-          args: check --output-format=github --config pyproject.toml
 
-  test:
+      # Ruff: fast lint
+      - name: Ruff (lint)
+        uses: astral-sh/ruff-action@v3
+        with:
+          # Run from repo root so pyproject.toml is discovered
+          src: .
+          args: check --output-format=github
+
+      # Ruff: formatting check (no changes applied)
+      - name: Ruff (format check)
+        uses: astral-sh/ruff-action@v3
+        with:
+          src: .
+          args: format --check .
+
+      # Lint workflow files themselves
+      - name: Actionlint (workflow lint)
+        uses: eifinger/actionlint-action@v1
+
+      # Spellcheck with project dictionary
+      - name: Codespell
+        uses: codespell-project/actions-codespell@v2
+        with:
+          path: .
+          check_hidden: false
+          ignore_words_file: .codespellignorewords.txt
+          # Skip caches and generated artifacts
+          skip: ./.git,./.venv,./.mypy_cache,./.ruff_cache,./.pytest_cache,./build,./dist,**/*.svg,**/*.json
+
+  typecheck:
+    name: Static typing (mypy)
     runs-on: ubuntu-24.04
-    env:
-      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
-      PYTHONPATH: src
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v6
@@ -41,8 +67,122 @@ jobs:
             **/pyproject.toml
             **/uv.lock
             uv.toml
-      - name: Install runtime + dev test deps (no CUDA)
+      - name: Install typing deps
+        run: |
+          uv pip install --system -r requirements.txt mypy types-PyYAML
+      - name: Run mypy
+        run: |
+          mypy --version
+          mypy src tests
+
+  unit:
+    name: Unit tests (CPU, ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.11', '3.12']
+    env:
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          prune-cache: true
+          cache-dependency-glob: |
+            **/requirements*.txt
+            **/pyproject.toml
+            **/uv.lock
+            uv.toml
+      - name: Install runtime + dev deps
         run: |
           uv pip install --system -r requirements.txt -r requirements-dev.txt
-      - name: Run tests
+      - name: PyTest
         run: pytest -q
+
+  extras:
+    # Heavier optional stack: install STL/Spatial monitoring libs and physics ML frameworks.
+    # Gate to non-PR events to keep PRs fast and resource-efficient.
+    name: Extras tests (Linux + Java + optional libs)
+    if: github.event_name != 'pull_request'
+    needs: [lint, typecheck, unit]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
+      PYTHONPATH: src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      # Java runtime for MoonLight (STREL)
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      # MONA for SpaTiaL/ltlf2dfa (Linux-only)
+      - name: Install system dependencies (MONA for SpaTiaL)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mona
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          prune-cache: true
+          cache-dependency-glob: |
+            **/requirements*.txt
+            **/pyproject.toml
+            **/uv.lock
+            uv.toml
+      - name: Install optional heavy stacks
+        run: |
+          uv pip install --system -r requirements.txt -r requirements-dev.txt -r requirements-extra.txt
+      - name: PyTest (with extras)
+        run: pytest -q
+
+  package:
+    name: Build & validate package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    needs: [lint, typecheck]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          prune-cache: true
+      - name: Build sdist and wheel
+        run: |
+          uv pip install --system build
+          python -m build
+      - name: Verify wheel installs
+        run: |
+          python -m venv /tmp/venv
+          /tmp/venv/bin/python -m pip install --upgrade pip
+          /tmp/venv/bin/python -m pip install dist/*.whl
+          /tmp/venv/bin/python -c "import physical_ai_stl, sys; print('ok', getattr(physical_ai_stl, '__version__', '0.0.0')); sys.exit(0)"
+
+  security:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pypa/gh-action-pip-audit@v1.1.0
+        with:
+          # Audit requirement pins; this does not modify the environment
+          inputs: |
+            requirements.txt
+            requirements-dev.txt
+            requirements-extra.txt
