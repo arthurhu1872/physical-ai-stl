@@ -1,3 +1,6 @@
 signal { bool hot; }
 domain boolean;
-formula contain = eventually (!(somewhere (hot)));
+
+formula nowhere_hot = !(somewhere(hot));
+formula quench      = globally(nowhere_hot);
+formula contain     = eventually(quench);
