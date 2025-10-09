@@ -1,3 +1,4 @@
+---
 # 2D Heat Equation PINN baseline (reproducible, STL-ready)
 # Domain: [x,y] \in [0,1]^2, t \in [0,1]
 # IC: Gaussian bump at t=0 centered in the domain (see physics/heat2d.py)
@@ -14,9 +15,9 @@ model:
 
 # Spatial-temporal grid used for collocation/evaluation
 grid:
-  n_x: 64                # x-resolution (collocation/eval grid)
-  n_y: 64                # y-resolution (collocation/eval grid)
-  n_t: 16                # time resolution (collocation/eval grid)
+  n_x: 64
+  n_y: 64
+  n_t: 64
   x_min: 0.0
   x_max: 1.0
   y_min: 0.0
@@ -24,48 +25,31 @@ grid:
   t_min: 0.0
   t_max: 1.0
 
-# Optimizer & training schedule
-optim:
-  lr: 0.002              # Adam LR
-  epochs: 200            # short, reproducible baseline
+# Training batch/grid (subsampled from above grid)
+train:
   batch: 4096            # interior collocation points / step (subsampled from grid)
-  weight_decay: 0.0
-  amsgrad: true
-  scheduler: cosine      # cosine annealing to zero over 'epochs'
-  step_size: 100         # (unused for cosine)
-  gamma: 0.5             # (unused for cosine)
-  grad_clip: 1.0         # global-norm clip for stability
-  compile: true          # torch.compile if available (falls back safely)
+  boundary: 512          # boundary points / step
+  ic: 512                # initial condition points / step
+  epochs: 200
+  lr: 1.0e-3
+  lr_gamma: 0.98
   amp: false             # disable mixed precision (second-order grads are sensitive)
-  device: auto           # auto => cuda -> mps -> cpu
-
-# Physics (heat equation u_t = alpha (u_xx + u_yy))
-physics:
-  alpha: 0.1             # diffusivity
-  bcic_weight: 1.0       # weight on BC/IC penalty term
+  compile: false
 
 # Residual-based adaptive refinement (RAR): off by default; enable for harder problems
 rar:
+  use: false
   pool: 0                # number of pool points to probe residuals (0 disables RAR)
-  hard_frac: 0.5         # fraction of batch replaced by hardest residuals
-  every: 10              # apply RAR every N epochs
+  add_per_round: 0
+  rounds: 0
 
-# Optional STL monitor/penalty (smooth robustness semantics)
-# STL notion here is a global-in-time amplitude bound over space:
-#   G_t [ u_min <= u(x,y,t) <= u_max ] on a coarse monitor grid.
+# STL monitor (spatial bound on field)
 stl:
   use: false             # baseline keeps logic off; flip to true to enforce bounds
-  weight: 10.0           # penalty weight when 'use: true'
-  u_min: 0.0             # consistent with Gaussian IC and zero-Dirichlet BCs
   u_max: 1.0
-  margin: 0.0            # slack margin (>=0)
-  beta: 10.0             # softplus scale in penalty
-  temp: 0.1              # temperature for soft min/max aggregations
   n_x: 32                # coarse monitor grid (decoupled from train batch/grid)
   n_y: 32
-  n_t: 16
-  every: 10              # compute monitor every N epochs to amortize cost
-  # (optional subregion for monitoring; defaults inherit from grid if null)
+  n_t: 32
   x_min: null
   x_max: null
   y_min: null
@@ -78,6 +62,6 @@ io:
   results_dir: results
   save_ckpt: true
   save_frames: true
-  frames_idx: [0, 8, 15] # time indices to export (clamped to [0, n_t-1])
+  frames_idx: [0, 8, 15]  # time indices to export (clamped to [0, n_t-1])
   save_figs: true
   print_every: 25
