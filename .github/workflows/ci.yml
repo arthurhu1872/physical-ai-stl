@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main, master]
   schedule:
-    - cron: "0 12 * * 1"   # weekly (adjust as you like)
+    - cron: "0 12 * * 1"   # Mondays 12:00 UTC (weekly)
   workflow_dispatch:
 
 permissions:
@@ -16,63 +16,226 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PYTHONUNBUFFERED: "1"
+  UV_SYSTEM_PYTHON: "1"
+  UV_CACHE_DIR: ${{ runner.temp }}/uv-cache
+  CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
 jobs:
-  test:
+  preflight:
+    name: Preflight (change detection)
     runs-on: ubuntu-latest
-
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-
-    # expose the secret as an environment variable so it can be used in `if:` expressions
-    env:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      docs: ${{ steps.filter.outputs.docs }}
+      workflows: ${{ steps.filter.outputs.workflows }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/checkout@v5
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: "pip"
+          fetch-depth: 0
 
-      - name: Determine changed paths
-        id: changes
+      - name: Compute changed paths
+        id: filter
         uses: dorny/paths-filter@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           filters: |
             code:
               - '**/*.py'
+              - 'src/**'
+              - 'tests/**'
               - 'pyproject.toml'
               - 'requirements*.txt'
+              - '.pre-commit-config.yaml'
+              - 'Makefile'
+              - 'Dockerfile'
+              - 'configs/**'
+              - '.github/workflows/ci.yml'
+            docs:
+              - 'README.md'
+              - 'docs/**'
+            workflows:
               - '.github/workflows/**'
-              - '!**/*.md'
 
-      - name: Install dependencies
-        if: ${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' }}
+  lint:
+    name: Lint & hygiene
+    needs: [preflight]
+    if: ${{ needs.preflight.outputs.code == 'true' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            pyproject.toml
+
+      - name: Install uv (fast Python package manager)
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dev tooling (ruff, codespell, mypy, pytest, ...)
         run: |
-          python -m pip install --upgrade pip wheel setuptools
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
-          # Optional: install project if it is a package
-          if [ -f pyproject.toml ] || [ -f setup.cfg ] || [ -f setup.py ]; then pip install -e .; fi
+          uv pip install -r requirements.txt -r requirements-dev.txt
+          # Install the package in editable mode to ensure package metadata is valid
+          uv pip install -e .
+
+      - name: Run pre-commit (format + lint + hygiene)
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --show-diff-on-failure
+
+      - name: Prune uv cache (CI)
+        if: always()
+        run: uv cache prune --ci
+
+  unit:
+    name: Tests (unit / minimal deps) – Python ${{ matrix.python-version }}
+    needs: [preflight]
+    if: ${{ needs.preflight.outputs.code == 'true' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python-version: "3.10"
+            experimental: false
+          - python-version: "3.11"
+            experimental: false
+          - python-version: "3.12"
+            experimental: false
+          - python-version: "3.13"
+            experimental: true
+    continue-on-error: ${{ matrix.experimental }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            pyproject.toml
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install minimal deps
+        run: |
+          uv pip install -r requirements.txt -r requirements-dev.txt
+          uv pip install -e .
 
       - name: Run tests
-        if: ${{ steps.changes.outputs.code == 'true' || github.event_name == 'schedule' }}
+        env:
+          PYTHONPATH: src
         run: |
-          python -m pip install pytest coverage pytest-cov || true
-          pytest -q --maxfail=1 --disable-warnings --cov=. --cov-report=xml
+          uv run pytest -q -n auto --maxfail=1 --disable-warnings \
+            --cov=src/physical_ai_stl --cov-report=xml --cov-report=term-missing:skip-covered
 
-      - name: Upload coverage to Codecov
-        # ✅ FIX: use env.CODECOV_TOKEN in the condition (secrets.* is not allowed in `if:`)
-        if: ${{ env.CODECOV_TOKEN != '' && (steps.changes.outputs.code == 'true' || github.event_name == 'schedule') }}
-        uses: codecov/codecov-action@v4
+      - name: Upload coverage to Codecov (main Py 3.12 only)
+        if: ${{ env.CODECOV_TOKEN != '' && matrix.python-version == '3.12' }}
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ env.CODECOV_TOKEN }}
           files: ./coverage.xml
           fail_ci_if_error: true
           verbose: true
+
+      - name: Prune uv cache (CI)
+        if: always()
+        run: uv cache prune --ci
+
+  extras:
+    name: Tests (optional extras: torch + RTAMT + MoonLight + SpaTiaL)
+    needs: [preflight]
+    if: ${{ needs.preflight.outputs.code == 'true' || github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            pyproject.toml
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Java (needed by MoonLight STREL)
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install system deps for SpaTiaL (MONA) [best-effort]
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mona || true
+
+      - name: Install optional Python stacks
+        run: |
+          # Dev + package
+          uv pip install -r requirements.txt -r requirements-dev.txt
+          uv pip install -e .
+          # Monitoring toolkits: RTAMT, MoonLight, SpaTiaL (POSIX-only)
+          uv pip install '.[monitoring]'
+          # CPU-only PyTorch (index configured in pyproject [tool.uv.sources])
+          uv pip install '.[torch]'
+
+      - name: Verify tool versions (debug)
+        run: |
+          python - <<'PY'
+          import importlib, sys
+          for name in ["torch","rtamt","moonlight","spatial_spec"]:
+              try:
+                  m = importlib.import_module(name)
+                  v = getattr(m, "__version__", "unknown")
+                  print(f"{name}: {v}")
+              except Exception as e:
+                  print(f"{name}: NOT INSTALLED ({e})")
+          PY
+          java -version
+
+      - name: Run targeted tests that exercise optional deps
+        env:
+          PYTHONPATH: src
+        run: |
+          uv run pytest -q -n auto --maxfail=1 --disable-warnings \
+            -k "stl_soft or moonlight or spatial or rtamt"
+
+      - name: Prune uv cache (CI)
+        if: always()
+        run: uv cache prune --ci
