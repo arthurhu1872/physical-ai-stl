@@ -81,25 +81,17 @@ jobs:
             requirements-dev.txt
             pyproject.toml
 
-      - name: Install uv (fast Python package manager)
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-
-      - name: Install dev tooling (ruff, codespell, mypy, pytest, ...)
+      - name: Install dev tooling (pip)
         run: |
-          uv pip install -r requirements.txt -r requirements-dev.txt
-          # Install the package in editable mode to ensure package metadata is valid
-          uv pip install -e .
+          python -m pip install --upgrade pip wheel setuptools
+          pip install -r requirements.txt -r requirements-dev.txt
+          # Install the package in editable mode using pip (avoid uv parsing of [tool.uv.*])
+          pip install -e .
 
       - name: Run pre-commit (format + lint + hygiene)
         uses: pre-commit/action@v3.0.1
         with:
           extra_args: --all-files --show-diff-on-failure
-
-      - name: Prune uv cache (CI)
-        if: always()
-        run: uv cache prune --ci
 
   unit:
     name: Tests (unit / minimal deps) – Python ${{ matrix.python-version }}
@@ -136,21 +128,18 @@ jobs:
             requirements-dev.txt
             pyproject.toml
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-
-      - name: Install minimal deps
+      - name: Install minimal deps (pip)
         run: |
-          uv pip install -r requirements.txt -r requirements-dev.txt
-          uv pip install -e .
+          python -m pip install --upgrade pip wheel setuptools
+          pip install -r requirements.txt -r requirements-dev.txt
+          pip install -e .
 
-      - name: Run tests
+      - name: Run tests (exclude optional stacks)
         env:
           PYTHONPATH: src
         run: |
-          uv run pytest -q -n auto --maxfail=1 --disable-warnings \
+          pytest -q -n auto --maxfail=1 --disable-warnings \
+            -k "not (moonlight or spatial or rtamt or neuromancer or physicsnemo or torchphysics or pde)" \
             --cov=src/physical_ai_stl --cov-report=xml --cov-report=term-missing:skip-covered
 
       - name: Upload coverage to Codecov (main Py 3.12 only)
@@ -162,16 +151,12 @@ jobs:
           fail_ci_if_error: true
           verbose: true
 
-      - name: Prune uv cache (CI)
-        if: always()
-        run: uv cache prune --ci
-
   extras:
-    name: 'Tests (optional extras: torch + RTAMT + MoonLight + SpaTiaL)'
+    name: 'Tests (optional extras: torch + RTAMT + MoonLight + SpaTiaL + frameworks)'
     needs: [preflight]
     if: ${{ needs.preflight.outputs.code == 'true' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -186,14 +171,10 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
+            requirements-extra.txt
             pyproject.toml
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-
-      - name: Set up Java (needed by MoonLight STREL)
+      - name: Install Java (MoonLight STREL)
         uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -204,21 +185,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y mona || true
 
-      - name: Install optional Python stacks
+      - name: Install optional stacks (pip; best-effort)
         run: |
-          # Dev + package
-          uv pip install -r requirements.txt -r requirements-dev.txt
-          uv pip install -e .
-          # Monitoring toolkits: RTAMT, MoonLight, SpaTiaL (POSIX-only)
-          uv pip install '.[monitoring]' || true
-          # CPU-only PyTorch (index configured in pyproject [tool.uv.sources])
-          uv pip install '.[torch]' || true
+          python -m pip install --upgrade pip wheel setuptools
+          pip install -r requirements.txt -r requirements-dev.txt
+          # Optional stacks (allow failure if some wheels unavailable)
+          if [ -f requirements-extra.txt ]; then
+            pip install -r requirements-extra.txt || true
+          fi
+          # Install local package after deps
+          pip install -e .
 
-      - name: Verify tool versions (debug)
+      - name: Show key versions
         run: |
           python - <<'PY'
           import importlib
-          for name in ["torch","rtamt","moonlight","spatial_spec"]:
+          for name in ["torch","rtamt","moonlight","spatial_spec","neuromancer","torchphysics","nvidia_physicsnemo"]:
               try:
                   m = importlib.import_module(name)
                   v = getattr(m, "__version__", "unknown")
@@ -233,16 +215,12 @@ jobs:
           PYTHONPATH: src
         run: |
           set -e
-          # Collect-only to see if any optional tests exist; don't fail if none.
-          COLLECT_OUTPUT="$(uv run pytest --collect-only -q -k 'stl_soft or moonlight or spatial or rtamt' 2>/dev/null || true)"
+          COLLECT_OUTPUT="$(pytest --collect-only -q -k 'stl_soft or moonlight or spatial or rtamt or neuromancer or torchphysics or physicsnemo or pde' 2>/dev/null || true)"
           if [ -n "$COLLECT_OUTPUT" ]; then
             echo "Discovered optional tests:"
-            echo "$COLLECT_OUTPUT" | sed -n '1,10p'
-            uv run pytest -q -n auto --maxfail=1 --disable-warnings -k "stl_soft or moonlight or spatial or rtamt"
+            echo "$COLLECT_OUTPUT" | sed -n '1,20p'
+            pytest -q -n auto --maxfail=1 --disable-warnings \
+              -k "stl_soft or moonlight or spatial or rtamt or neuromancer or torchphysics or physicsnemo or pde"
           else
             echo "No optional tests discovered; skipping extras test suite."
           fi
-
-      - name: Prune uv cache (CI)
-        if: always()
-        run: uv cache prune --ci
