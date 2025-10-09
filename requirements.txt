@@ -1,2 +1,5 @@
-# Minimal runtime requirements for the package
-numpy>=1.26,<2.0
+# physical-ai-stl — minimal runtime requirements (CS-3860)
+# Python >= 3.10 (enforced in pyproject.toml)
+# Keep this base lean; heavy stacks live in requirements-extra.txt.
+# NumPy: sliding_window_view requires >=1.20; use >=1.26.4 for Py3.12 wheels; allow 2.x.
+numpy>=1.26.4,<3.0
