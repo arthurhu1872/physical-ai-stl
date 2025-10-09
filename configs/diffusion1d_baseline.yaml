@@ -1,3 +1,4 @@
+---
 # 1D diffusion PINN baseline (reproducible, STL-ready)
 experiment: diffusion1d
 tag: baseline
@@ -18,28 +19,8 @@ grid:
   t_min: 0.0
   t_max: 1.0
 
-# Training hyperparameters and sampling
-optim:
-  lr: 0.002              # Adam initial learning rate
-  epochs: 200
-  batch: 4096            # interior collocation points per step
-  weight_decay: 0.0
-  n_boundary: 256        # boundary points per optimization step
-  n_initial: 512         # initial-condition points per optimization step
-  sample_method: sobol   # quasi-random; faster convergence than uniform
-
-# PDE physics (u_t = alpha * u_xx)
-physics:
-  alpha: 0.1
-
-# STL monitor (present but disabled for baseline)
-stl:
-  use: false             # set true in diffusion1d_stl.yaml to enable monitoring
-  weight: 0.0            # no effect when use=false
-  u_max: 1.0
-  temp: 0.1
-  spatial: mean          # aggregation across space: mean|softmax|amax
-  every: 1               # evaluate every k steps
+# STL monitor grid (decoupled from training batch)
+stl_grid:
   n_x: 64                # coarse monitor grid; decoupled from train batch
   n_t: 64
 
