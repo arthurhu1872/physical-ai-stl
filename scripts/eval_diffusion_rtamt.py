@@ -1,4 +1,39 @@
+#!/usr/bin/env python3
 # ruff: noqa: I001
+"""
+Evaluate STL robustness with RTAMT for a saved 1‑D diffusion PINN field.
+
+This script loads a checkpoint produced by the training scripts (the artifact
+named like ``*_field.pt``), reduces the spatial dimensions to a single
+time–series, and evaluates an STL specification using RTAMT (dense or discrete
+semantics). If RTAMT is not available locally, the script falls back to an
+exact discrete‑time computation of robustness for the supported predicates.
+
+Design goals
+------------
+• **Correct**: careful axis inference (time vs. space), robust dt inference,
+  precise semantics selection, and numerically stable reductions.
+• **Practical**: graceful degradation when RTAMT is missing; portable, no
+  heavy imports at module import time; helpful error messages.
+• **Fast**: vectorized spatial reductions in PyTorch, zero‑copy where possible.
+
+Examples
+--------
+  # Evaluate an upper‑bound safety spec:  u(x,t) ≤ 1  for all x, t
+  python scripts/eval_diffusion_rtamt.py \\
+      --ckpt results/diffusion1d_week2_field.pt \\
+      --spec upper --u-max 1.0 --semantics dense --agg mean
+
+  # Range constraint  0.0 ≤ u(x,t) ≤ 1.0  using a softmax spatial aggregator
+  python scripts/eval_diffusion_rtamt.py \\
+      --ckpt results/diffusion1d_week2_field.pt --spec range \\
+      --u-min 0.0 --u-max 1.0 --agg softmax --temp 0.25
+
+Outputs
+-------
+• Prints a concise human summary.
+• Optionally writes a JSON blob with all details (use --json).
+"""
 from __future__ import annotations
 
 import argparse
@@ -15,27 +50,9 @@ from physical_ai_stl.monitoring.rtamt_monitor import (
     stl_always_upper_bound as _rtamt_stl_upper,
 )
 
-
 # -----------------------------------------------------------------------------
-# Argument parsing
+# CLI
 # -----------------------------------------------------------------------------
-
-
-@dataclass
-class Args:
-    ckpt: str
-    var: str
-    semantics: str          # 'dense' or 'discrete'
-    dt: float | None
-    agg: str                # spatial reducer
-    p: float                # lp norm (for --agg lp)
-    q: float                # quantile (for --agg quantile)
-    temp: float             # temperature (for --agg softmax)
-    spec: str               # 'upper' | 'lower' | 'range'
-    u_max: float | None
-    u_min: float | None
-    json_out: str | None
-    verbose: bool
 
 
 def build_argparser() -> argparse.ArgumentParser:
@@ -73,16 +90,26 @@ def build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--agg",
         type=str,
-        default="mean",
         choices=["mean", "amax", "amin", "median", "quantile", "lp", "softmax"],
+        default="mean",
         help="Spatial reducer applied before monitoring",
     )
-    ap.add_argument("--p", type=float, default=4.0, help="p for --agg lp (p-norm)")
-    ap.add_argument("--q", type=float, default=0.95, help="q for --agg quantile in [0,1]")
+    ap.add_argument(
+        "--p",
+        type=float,
+        default=2.0,
+        help="p for --agg lp (p-norm)",
+    )
+    ap.add_argument(
+        "--q",
+        type=float,
+        default=0.95,
+        help="q for --agg quantile in [0,1]",
+    )
     ap.add_argument(
         "--temp",
         type=float,
-        default=10.0,
+        default=0.1,
         help="temperature for --agg softmax (higher≈harder max)",
     )
     ap.add_argument(
@@ -195,6 +222,7 @@ def _reduce_spatial(U, time_axis: int, *, mode: str, p: float, q: float, temp: f
             pv = float(p)
             # Lp norm converted to an "average magnitude" (scale‑aware yet monotone)
             S = spatial.abs().pow(pv).mean(dim=0).pow(1.0 / pv)
+            # (Avoid exact max to keep the reducer continuous for p<∞)
         elif mode == "softmax":
             # Differentiable max via log‑sum‑exp scaling
             tau = float(temp)
@@ -239,12 +267,13 @@ def _build_spec(
             )
         # Generic builder for others
         import rtamt  # type: ignore
-        if semantics == "dense":
-            SpecCls = getattr(rtamt, "StlDenseTimeSpecification", None) or getattr(
-                rtamt,
-                "StlDenseTimeOfflineSpecification",
-            )
-        else:
+        SpecCls = (
+            getattr(rtamt, "StlDenseTimeSpecification", None)
+            or getattr(rtamt, "StlDenseTimeOfflineSpecification", None)
+            if semantics == "dense"
+            else None
+        )
+        if SpecCls is None:
             SpecCls = rtamt.StlDiscreteTimeSpecification
         spec = SpecCls()
         spec.declare_var(var, "float")
@@ -327,6 +356,23 @@ def _evaluate(
 # -----------------------------------------------------------------------------
 
 
+@dataclass
+class Args:
+    ckpt: str
+    var: str
+    semantics: str          # 'dense' or 'discrete'
+    dt: float | None
+    agg: str                # spatial reducer
+    p: float                # lp norm (for --agg lp)
+    q: float                # quantile (for --agg quantile)
+    temp: float             # temperature (for --agg softmax)
+    spec: str               # 'upper' | 'lower' | 'range'
+    u_max: float | None
+    u_min: float | None
+    json_out: str | None
+    verbose: bool
+
+
 def main() -> None:
     args = Args(**vars(build_argparser().parse_args()))
 
@@ -343,61 +389,86 @@ def main() -> None:
             f"Available keys: {keys}. Did you pass the *_field.pt artifact?"
         )
     U = data[args.var]
-    T = data.get("T", None)
+    # Try common time vector key names
+    T = None
+    for key in ("T", "t", "time", "times"):
+        if key in data:
+            T = data[key]
+            break
 
-    # Choose the time axis and compute the spatially reduced series
-    t_axis, nt = _infer_time_axis(U, T)
-    S = _reduce_spatial(U, t_axis, mode=args.agg, p=args.p, q=args.q, temp=args.temp)
-    series: list[float] = S.tolist()
+    # Determine which axis is time and reduce spatially to a single series
+    time_axis, nt = _infer_time_axis(U, T)
+    series_tensor = _reduce_spatial(
+        U,
+        time_axis=time_axis,
+        mode=str(args.agg).lower(),
+        p=float(args.p),
+        q=float(args.q),
+        temp=float(args.temp),
+    )
+    # Coerce to a plain list[float] for the monitor
+    series: list[float] = [float(x) for x in series_tensor.flatten().tolist()]
+    if len(series) != nt:  # sanity
+        nt = len(series)
 
-    # Infer dt (prefer checkpoint T)
+    # Infer dt
     dt = _infer_dt(T, args.dt, nt)
 
-    # Bounds
-    u_max = float(args.u_max) if args.u_max is not None else float(data.get("u_max", 1.0))
-    u_min = float(args.u_min) if args.u_min is not None else float(data.get("u_min", 0.0))
-
-    # Evaluate
+    # Evaluate robustness
     rob, sat, backend = _evaluate(
         args.var,
         series,
         dt,
-        spec_kind=args.spec,
-        semantics=args.semantics,
-        u_min=u_min,
-        u_max=u_max,
+        spec_kind=str(args.spec).lower(),
+        semantics=str(args.semantics).lower(),
+        u_min=args.u_min,
+        u_max=args.u_max,
     )
 
-    # Human‑friendly print
-    if args.spec == "upper":
-        pred = f"G (reduce_x {args.var} <= {u_max:g})"
-    elif args.spec == "lower":
-        pred = f"G ({u_min:g} <= reduce_x {args.var})"
-    else:
-        pred = f"G ({u_min:g} <= reduce_x {args.var} <= {u_max:g})"
-    verdict = "SAT" if sat else "UNSAT"
-    msg = (
-        f"[{verdict}] robustness={rob:.6g} using {backend}  |  spec: {pred}  "
-        f"(semantics={args.semantics}, agg={args.agg}, dt={dt:g}, nt={nt})"
-    )
-    print(msg)
+    # Pretty print
+    if args.verbose:
+        import numpy as np
+        Ushape = tuple(int(s) for s in _as_tensor(U).shape)
+        print(f"[info] ckpt={ckpt_path}")
+        print(f"[info] var={args.var!r} shape={Ushape}  time_axis={time_axis}  nt={nt}")
+        print(f"[info] semantics={args.semantics}  dt={dt:.6g}  backend={backend}")
+        print(
+            f"[info] agg={args.agg}"
+            + (f"(p={args.p:g})" if args.agg == "lp" else "")
+            + (f"(q={args.q:g})" if args.agg == "quantile" else "")
+            + (f"(temp={args.temp:g})" if args.agg == "softmax" else "")
+        )
+        arr = np.asarray(series, dtype=float)
+        print(
+            f"[info] series stats: min={arr.min():.6g}  max={arr.max():.6g}  "
+            f"mean={arr.mean():.6g}  std={arr.std():.6g}"
+        )
+
+    status = "SAT" if sat else "UNSAT"
+    print(f"Robustness = {rob:.6g}   [{status}]   (backend={backend})")
 
     # Optional JSON summary
     if args.json_out:
         summary = {
             "ckpt": str(ckpt_path),
             "var": args.var,
-            "semantics": args.semantics,
-            "dt": dt,
-            "agg": args.agg,
-            "p": args.p,
-            "q": args.q,
-            "temp": args.temp,
-            "spec": args.spec,
-            "u_max": u_max,
-            "u_min": u_min,
+            "shape": tuple(int(s) for s in _as_tensor(U).shape),
+            "time_axis": int(time_axis),
             "nt": nt,
-            "robustness": rob,
+            "dt": float(dt),
+            "semantics": str(args.semantics),
+            "agg": {
+                "name": str(args.agg),
+                "p": float(args.p),
+                "q": float(args.q),
+                "temp": float(args.temp),
+            },
+            "spec": {
+                "kind": str(args.spec),
+                "u_min": None if args.u_min is None else float(args.u_min),
+                "u_max": None if args.u_max is None else float(args.u_max),
+            },
+            "robustness": float(rob),
             "satisfied": bool(sat),
             "backend": backend,
         }
