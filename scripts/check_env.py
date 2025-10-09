@@ -1,4 +1,36 @@
 #!/usr/bin/env python3
+"""physical-ai-stl — environment quick check
+
+Purpose
+-------
+Give a crisp, fast, and actionable summary of the local environment for the
+CS‑3860 "physical AI + STL" repo. It focuses on three physics‑ML stacks
+and three STL/STREL monitoring toolkits discussed with Prof. Johnson:
+
+  • Frameworks:    NeuroMANCER, NVIDIA PhysicsNeMo, Bosch TorchPhysics
+  • STL tooling:   RTAMT (STL), MoonLight (STREL), SpaTiaL (object‑centric specs)
+
+Design goals
+------------
+1) **Robust**: never crash; import lazily; degrade gracefully.
+2) **Fast**: no heavy computation; at most a few subprocess calls.
+3) **Actionable**: if something is missing, print the exact install hint.
+4) **Portable**: Linux/macOS/Windows/WSL; CPU‑only friendly.
+5) **Machine‑readable**: `--json` and `--md` outputs for CI/reporting.
+
+Exit code
+---------
+• 0  → all *core* items are present (Python≥3.10, NumPy).
+• 1  → some *core* items are missing (useful for CI).
+
+Usage
+-----
+  python scripts/check_env.py            # human summary
+  python scripts/check_env.py --md       # Markdown table
+  python scripts/check_env.py --json     # JSON diagnostic blob
+  python -m scripts.check_env --quick    # skip slow external probes
+
+"""
 from __future__ import annotations
 
 import argparse
@@ -6,492 +38,430 @@ import dataclasses
 import importlib
 import importlib.util
 import json
+import os
 import platform
-import re
 import shutil
 import subprocess
 import sys
-from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+from types import ModuleType
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
-try:
-    # Python 3.8+: importlib.metadata in stdlib; fall back for older
-    from importlib import metadata as md  # type: ignore
-except Exception:  # pragma: no cover
-    import importlib_metadata as md  # type: ignore
+# ------------------------------- utilities ---------------------------------
 
-
-# ------------------------------- helpers ------------------------------------
-
-
-@dataclasses.dataclass
-class ProbeResult:
-    present: bool
-    imported: bool
-    version: str | None
-    message: str             # human string (OK/err details)
-    extra: dict[str, str]    # any extra diagnostics
-
-
-@dataclasses.dataclass
-class Dep:
-    display: str                 # friendly name to show
-    modules: tuple[str, ...]     # python import names to probe (first is canonical)
-    dist: str | None = None      # PyPI distribution name for version lookup / pip hint
-    required: bool = False       # for exit code; 'core optional' set True
-    post_check: Callable[[ProbeResult, bool], None] | None = None  # augment diagnostics
-    note: str | None = None      # extra note to display
-
-    def canonical_module(self) -> str:
-        return self.modules[0]
-
-
-def _find_spec(mod: str) -> bool:
+def _supports_color(stream) -> bool:
     try:
-        return importlib.util.find_spec(mod) is not None
+        import curses  # noqa: F401
+        return stream.isatty()
     except Exception:
         return False
 
+class _Color:
+    def __init__(self, enabled: bool) -> None:
+        self.enabled = enabled
 
-def _safe_import(mod: str) -> tuple[bool, BaseException | None]:
+    def _c(self, code: str) -> str:
+        return code if self.enabled else ""
+
+    @property
+    def reset(self) -> str: return self._c("\033[0m")
+    @property
+    def dim(self) -> str: return self._c("\033[2m")
+    @property
+    def bold(self) -> str: return self._c("\033[1m")
+    @property
+    def green(self) -> str: return self._c("\033[32m")
+    @property
+    def red(self) -> str: return self._c("\033[31m")
+    @property
+    def yellow(self) -> str: return self._c("\033[33m")
+    @property
+    def blue(self) -> str: return self._c("\033[34m")
+    @property
+    def magenta(self) -> str: return self._c("\033[35m")
+
+def _which(cmd: str) -> Optional[str]:
+    return shutil.which(cmd)
+
+def _run(cmd: List[str], timeout: float = 2.0) -> Tuple[int, str, str]:
+    """Run a small command; never raise; short timeout."""
     try:
-        importlib.import_module(mod)
-        return True, None
-    except BaseException as e:
-        return False, e
+        p = subprocess.run(
+            cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, timeout=timeout
+        )
+        return p.returncode, (p.stdout or "").strip(), (p.stderr or "").strip()
+    except Exception as e:
+        return 127, "", f"{type(e).__name__}: {e}"
 
+# ------------------------------- versions ----------------------------------
 
-def _version_for(dist: str | None, module: str | None) -> str | None:
-    if dist:
+def _version_of_distribution(names: Iterable[str]) -> Optional[str]:
+    """Try importlib.metadata first; fall back to module __version__ on import."""
+    try:
+        from importlib import metadata as _md  # Py3.8+
+    except Exception:  # pragma: no cover
         try:
-            return md.version(dist)  # type: ignore[arg-type]
-        except md.PackageNotFoundError:
-            pass
+            import importlib_metadata as _md  # type: ignore
         except Exception:
-            # e.g., broken metadata — continue
-            pass
-    if module:
+            _md = None  # type: ignore
+
+    # 1) try package metadata
+    if _md is not None:
+        for n in names:
+            try:
+                return _md.version(n)
+            except Exception:
+                pass
+    # 2) try module import
+    for n in names:
         try:
-            mod_obj = sys.modules.get(module) or importlib.import_module(module)
-            v = getattr(mod_obj, "__version__", None)
-            if isinstance(v, str):
+            mod = importlib.import_module(n)
+            v = getattr(mod, "__version__", None)
+            if isinstance(v, str) and v:
                 return v
         except Exception:
-            pass
+            continue
     return None
 
-
-def _run(cmd: Iterable[str]) -> tuple[int, str, str]:
+def _parse_version(v: str) -> Tuple:
+    """Lenient version parser (digits + text)."""
     try:
-        proc = subprocess.run(list(cmd), capture_output=True, check=False, text=True)
-        return proc.returncode, proc.stdout, proc.stderr
-    except FileNotFoundError:
-        return 127, "", ""
-    except Exception as e:  # pragma: no cover - extremely rare on CI
-        return 1, "", f"{e.__class__.__name__}: {e}"
+        from packaging.version import Version  # type: ignore
+        return (Version(v),)
+    except Exception:
+        import re as _re
+        parts = _re.split(r"[^0-9A-Za-z]+", v)
+        norm: List[Any] = []
+        for p in parts:
+            if p == "":
+                continue
+            if p.isdigit():
+                norm.append(int(p))
+            else:
+                norm.append(p.lower())
+        return tuple(norm)
 
+def _meets(v: Optional[str], min_v: Optional[str]) -> bool:
+    if min_v is None:
+        return True
+    if v is None:
+        return False
+    return _parse_version(v) >= _parse_version(min_v)
 
-def _install_hint(dep: Dep) -> str | None:
-    if dep.dist:
-        # Special-cases with extra context
-        if dep.dist == "torch":
-            return ("pip install torch  "
-                    "(see https://pytorch.org/get-started/locally/ for CUDA/ROCm/CPU wheels)")
-        if dep.dist == "moonlight":
-            return "pip install moonlight  (requires Java 21+; verify `java -version`)"
-        if dep.dist == "spatial-spec":
-            return "pip install spatial-spec  (optional: install MONA + `ltlf2dfa`; Windows not supported)"
-        if dep.dist == "nvidia-physicsnemo":
-            return "pip install nvidia-physicsnemo  (optional extras: `[all]` / `[dev]`)"
-        # Default hint
-        return f"pip install {dep.dist}"
-    return None
+# ----------------------------- probe schema --------------------------------
 
+@dataclass(frozen=True)
+class Dependency:
+    display: str                    # human‑readable name
+    import_names: Tuple[str, ...]   # module import path(s)
+    pip_names: Tuple[str, ...]      # distribution names for pip/metadata
+    required: bool = False
+    min_version: Optional[str] = None
+    notes: str = ""               # short hint
+    extra_probe: Optional[Callable[[ModuleType], Mapping[str, Any]]] = None
 
-def _parse_java_version(text: str) -> str | None:
-    m = re.search(r'version\s+"([\d.]+)"', text)
-    return m.group(1) if m else None
+@dataclass
+class ProbeResult:
+    present: bool
+    imported: bool
+    version: Optional[str]
+    message: str
+    extra: Dict[str, Any]
 
-
-def _cuda_extra(result: ProbeResult, do_import: bool) -> None:
-    # NVIDIA
-    smi = shutil.which("nvidia-smi")
-    if smi:
-        code, out, err = _run([smi, "--query-gpu=name,driver_version,cuda_version", "--format=csv,noheader"])
-        if code == 0:
-            lines = [ln.strip() for ln in (out or "").splitlines() if ln.strip()]
-            if lines:
-                names: list[str] = []
-                drivers: set[str] = set()
-                cudas: set[str] = set()
-                for ln in lines:
-                    parts = [p.strip() for p in ln.split(",")]
-                    if parts:
-                        names.append(parts[0])
-                    if len(parts) > 1 and parts[1]:
-                        drivers.add(parts[1])
-                    if len(parts) > 2 and parts[2]:
-                        cudas.add(parts[2])
-                if names:
-                    result.extra["gpus"] = "; ".join(names)
-                if drivers:
-                    result.extra["nvidia_driver"] = ", ".join(sorted(drivers))
-                if cudas:
-                    result.extra["nvidia_cuda"] = ", ".join(sorted(cudas))
-        else:
-            result.extra["nvidia_smi"] = f"error (code {code})"
+def _probe(dep: Dependency, *, quick: bool = False) -> Tuple[Dependency, ProbeResult]:
+    # presence via find_spec on any alias
+    present = False
+    spec_name: Optional[str] = None
+    for name in dep.import_names:
+        try:
+            spec = importlib.util.find_spec(name)
+        except Exception:
+            spec = None
+        if spec is not None:
+            present = True
+            spec_name = name
+            break
+    imported = False
+    version = _version_of_distribution(dep.pip_names + dep.import_names)
+    module: Optional[ModuleType] = None
+    message = ""
+    extra: Dict[str, Any] = {}
+    if present and spec_name is not None:
+        try:
+            module = importlib.import_module(spec_name)
+            imported = True
+        except Exception as e:
+            message = f"import error: {type(e).__name__}: {e}"
     else:
-        result.extra["nvidia_smi"] = "not found"
+        message = "module not found"
+    # min version check
+    if dep.min_version and (version is not None) and not _meets(version, dep.min_version):
+        message = f"needs >= {dep.min_version}; found {version}"
+    # run lightweight extra probe
+    if module is not None and dep.extra_probe is not None:
+        try:
+            if not quick:
+                extra.update(dict(dep.extra_probe(module)))
+        except Exception as e:
+            extra.setdefault("warning", f"extra probe failed: {type(e).__name__}: {e}")
+    # final message
+    if not message:
+        message = "OK" if imported else ("present (import failed)" if present else "missing")
+    return dep, ProbeResult(present, imported, version, message, extra)
 
-    nvcc = shutil.which("nvcc")
-    if nvcc:
-        code, out, err = _run([nvcc, "--version"])
-        text = (out or err or "").strip()
-        m = re.search(r"release\s+([\d.]+)", text)
-        result.extra["nvcc"] = m.group(1) if m else "present"
-    else:
-        result.extra["nvcc"] = "not found"
+# ------------------------------ extra probes --------------------------------
 
-    # AMD ROCm
-    rocmsmi = shutil.which("rocm-smi")
-    if rocmsmi:
-        code, out, err = _run([rocmsmi, "--showdriverversion"])
-        ver = None
-        for line in (out or "").splitlines():
-            m = re.search(r"Driver version:\s*([\w.:-]+)", line)
-            if m:
-                ver = m.group(1)
-                break
-        result.extra["rocm_smi"] = ver or "present"
-    else:
-        result.extra["rocm_smi"] = "not found"
-
-    hipcc = shutil.which("hipcc")
-    if hipcc:
-        code, out, err = _run([hipcc, "--version"])
-        m = re.search(r"HIP version:\s*([\d.]+)", (out or err or ""))
-        result.extra["hipcc"] = m.group(1) if m else "present"
-    else:
-        result.extra["hipcc"] = "not found"
-
-    if not do_import:
-        result.extra.setdefault("hint", "run with --import to gather CUDA/ROCm device details via torch")
-        return
-
+def _probe_torch(mod: ModuleType) -> Mapping[str, Any]:
+    info: Dict[str, Any] = {}
     try:
         import torch  # type: ignore
     except Exception as e:  # pragma: no cover
-        result.extra["torch_error"] = f"{e.__class__.__name__}: {e}"
-        return
-
+        return {"error": f"torch import failed: {type(e).__name__}: {e}"}
+    info["cuda_available"] = bool(torch.cuda.is_available())
+    info["mps_available"] = bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available())
+    info["build_cuda"] = getattr(torch.version, "cuda", None)
+    cudnn_v = None
     try:
-        result.extra["torch_version"] = getattr(torch, "__version__", "?")
-        # CUDA or ROCm build string (e.g., '12.1' or '6.2' for ROCm)
-        cu = getattr(torch.version, "cuda", None)
-        hip = getattr(torch.version, "hip", None)
-        if cu:
-            result.extra["torch_cuda"] = cu
-        if hip:
-            result.extra["torch_rocm"] = hip
-
-        # Device availability and names
-        cuda_ok = torch.cuda.is_available()
-        if cuda_ok:
-            try:
-                n = torch.cuda.device_count()
-                names = [torch.cuda.get_device_name(i) for i in range(n)]
-                result.extra["cuda_available"] = "True"
-                result.extra["gpus"] = "; ".join(names)
-            except Exception:
-                result.extra["cuda_available"] = "True"
-        else:
-            result.extra["cuda_available"] = "False"
-    except Exception as e:  # pragma: no cover
-        result.extra["torch_cuda_error"] = f"{e.__class__.__name__}: {e}"
-
-
-def _moonlight_extra(result: ProbeResult, do_import: bool) -> None:  # noqa: ARG001
-    java = shutil.which("java")
-    if not java:
-        result.extra["java"] = "not found in PATH"
-        return
-    code, out, err = _run([java, "-version"])
-    text = (out + "\n" + err).strip()
-    ver = _parse_java_version(text) if code == 0 or text else None
-    result.extra["java"] = f"{java}"
-    if ver:
-        result.extra["java_version"] = ver
+        cudnn_v = torch.backends.cudnn.version()
+    except Exception:
+        pass
+    info["cudnn"] = cudnn_v
+    if torch.cuda.is_available():
         try:
-            major_token = ver.split(".", 1)[0]
-            major = int(major_token)
-            # Handle legacy '1.8.0_xx' style -> treat as 8
-            if major == 1:
-                try:
-                    legacy_minor = int(ver.split(".")[1])
-                    major = legacy_minor
-                except Exception:
-                    pass
-            result.extra["java_ok_for_moonlight"] = str(major >= 21)
-            result.extra["java_major"] = str(major)
+            info["gpu_count"] = torch.cuda.device_count()
+            info["gpu_name0"] = torch.cuda.get_device_name(0)
+            info["capability0"] = ".".join(map(str, torch.cuda.get_device_capability(0)))
         except Exception:
             pass
+    # Optional: nvidia-smi for driver (fast)
+    if _which("nvidia-smi") and torch.cuda.is_available():
+        code, out, err = _run(["nvidia-smi", "--query-gpu=name,driver_version", "--format=csv,noheader"], timeout=1.5)
+        if code == 0 and out:
+            line0 = out.splitlines()[0].strip()
+            info["nvidia_smi"] = line0
+        elif err:
+            info["nvidia_smi"] = f"(error) {err.splitlines()[:1][0]}"
+    return info
 
+def _probe_java(_: ModuleType | None = None) -> Mapping[str, Any]:
+    # Plain external probe; MoonLight requires Java 21+
+    info: Dict[str, Any] = {}
+    jpath = _which("java")
+    if not jpath:
+        info["java"] = "not found"
+        return info
+    code, out, err = _run([jpath, "-version"], timeout=1.5)
+    raw = (out + "\n" + err).strip()
+    info["java_raw"] = raw.splitlines()[0] if raw else ""
+    # parse: 'openjdk version "21.0.2" ...'
+    import re as _re
+    m = _re.search(r"(\d+)(?:\.(\d+))?", raw)
+    if m:
+        major = int(m.group(1))
+        info["java_major"] = major
+        info["java_ok_for_moonlight"] = bool(major >= 21)
+    return info
 
-def _spatial_extra(result: ProbeResult, do_import: bool) -> None:  # noqa: ARG001
-    # Python binding used by SpaTiaL's automaton planning
-    try:
-        import ltlf2dfa  # type: ignore
-        result.extra["ltlf2dfa"] = getattr(ltlf2dfa, "__version__", "present")
-    except Exception:
-        result.extra["ltlf2dfa"] = "missing"
-    # MONA binary
-    mona = shutil.which("mona")
-    result.extra["mona"] = mona or "not found in PATH"
-    # Windows caveat per project docs
-    if platform.system() == "Windows":
-        result.extra["windows_note"] = "ltlf2dfa currently not supported on Windows"
+# ------------------------------- inventory ---------------------------------
 
-
-def _probe(dep: Dep, do_import: bool) -> ProbeResult:
-    present = any(_find_spec(m) for m in dep.modules)
-    imported = False
-    msg = "OK" if present else "not found"
-    if not present:
-        hint = _install_hint(dep)
-        if hint:
-            msg = f"not found — {hint}"
-    exc: BaseException | None = None
-
-    if do_import and present:
-        imported = False
-        # Try importing the canonical module only to avoid heavy side effects across aliases.
-        imported, exc = _safe_import(dep.canonical_module())
-        if imported:
-            msg = "import ok"
-        else:
-            msg = f"import failed: {exc.__class__.__name__}: {exc}"
-
-    version = _version_for(dep.dist, dep.canonical_module() if imported else None)
-    extra: dict[str, str] = {}
-
-    result = ProbeResult(
-        present=present,
-        imported=imported,
-        version=version,
-        message=msg,
-        extra=extra,
-    )
-
-    # Attach domain-specific diagnostics
-    if dep.post_check:
-        try:
-            dep.post_check(result, do_import)
-        except Exception as e:  # pragma: no cover
-            result.extra.setdefault("post_check_error", f"{e.__class__.__name__}: {e}")
-
-    return result
-
-
-# ------------------------------- inventory ----------------------------------
-
-
-CORE: list[Dep] = [
-    Dep("PyTorch", modules=("torch",), dist="torch", required=True, post_check=_cuda_extra),
-    Dep("RTAMT (STL)", modules=("rtamt",), dist="rtamt", required=True),
-    Dep(
-        "MoonLight (STREL)",
-        modules=("moonlight",),
-        dist="moonlight",
+# Core: keep lean; the repo's base requirement is numpy
+CORE: Tuple[Dependency, ...] = (
+    Dependency(
+        display="Python",
+        import_names=("sys",),
+        pip_names=("python",),
         required=True,
-        post_check=_moonlight_extra,
+        min_version="3.10",
+        notes="Project requires Python ≥ 3.10.",
     ),
-    Dep("Neuromancer", modules=("neuromancer",), dist="neuromancer", required=True),
-    Dep("TorchPhysics", modules=("torchphysics",), dist="torchphysics", required=True),
-    Dep("PhysicsNeMo", modules=("physicsnemo",), dist="nvidia-physicsnemo", required=True),
-    Dep(
-        "SpaTiaL (spatial-spec)",
-        modules=("spatial", "spatial_spec"),
-        dist="spatial-spec",
+    Dependency(
+        display="NumPy",
+        import_names=("numpy",),
+        pip_names=("numpy",),
         required=True,
-        post_check=_spatial_extra,
+        min_version="1.26.4",
+        notes="Vector operations & array API.",
     ),
-]
+)
 
-EXTRA: list[Dep] = [
-    Dep("matplotlib", modules=("matplotlib",), dist="matplotlib"),
-    Dep("tqdm", modules=("tqdm",), dist="tqdm"),
-    Dep("PyYAML", modules=("yaml",), dist="PyYAML"),
-    Dep("NumPy", modules=("numpy",), dist="numpy"),
-    Dep("SciPy", modules=("scipy",), dist="scipy"),
-]
+# Physics‑ML frameworks (optional; highly recommended)
+FRAMEWORKS: Tuple[Dependency, ...] = (
+    Dependency(
+        display="PyTorch",
+        import_names=("torch",),
+        pip_names=("torch",),
+        min_version=None,  # we don't force a version here
+        notes="Deep learning backend; GPU optional.",
+        extra_probe=_probe_torch,
+    ),
+    Dependency(
+        display="NeuroMANCER",
+        import_names=("neuromancer",),
+        pip_names=("neuromancer",),
+        min_version=None,
+        notes="PyTorch SciML + DPC; pip install neuromancer.",
+    ),
+    Dependency(
+        display="PhysicsNeMo",
+        import_names=("physicsnemo",),
+        pip_names=("nvidia-physicsnemo",),
+        min_version=None,
+        notes="NVIDIA Physics‑ML; pip install nvidia-physicsnemo.",
+    ),
+    Dependency(
+        display="PhysicsNeMo‑Sym",
+        import_names=("physicsnemo.sym",),
+        pip_names=("nvidia-physicsnemo.sym","nvidia-physicsnemo-sym"),
+        min_version=None,
+        notes="Symbolic PDE utils; may require Cython; see NVIDIA docs.",
+    ),
+    Dependency(
+        display="TorchPhysics",
+        import_names=("torchphysics",),
+        pip_names=("torchphysics",),
+        min_version=None,
+        notes="PINNs/DeepRitz/DeepONet/FNO; pip install torchphysics.",
+    ),
+)
 
+# STL / STREL toolkits
+STL_TOOLS: Tuple[Dependency, ...] = (
+    Dependency(
+        display="RTAMT (STL)",
+        import_names=("rtamt",),
+        pip_names=("rtamt",),
+        min_version=None,
+        notes="Signal Temporal Logic monitors; pip install rtamt.",
+    ),
+    Dependency(
+        display="MoonLight (STREL)",
+        import_names=("moonlight",),
+        pip_names=("moonlight",),
+        min_version=None,
+        notes="STREL monitors; requires Java ≥ 21 in PATH.",
+        extra_probe=lambda _m: _probe_java(None),
+    ),
+    Dependency(
+        display="SpaTiaL / spatial‑spec",
+        import_names=("spatial_spec",),
+        pip_names=("spatial-spec",),
+        min_version=None,
+        notes="Spatio‑temporal relations; pip install spatial-spec (Linux/macOS)."
+    ),
+)
 
-def _row(dep: Dep, pr: ProbeResult, ascii_only: bool) -> list[str]:
-    ok = pr.present
-    check = ("OK" if ascii_only else "✅") if ok else ("MISSING" if ascii_only else "❌")
-    ver = pr.version or ""
-    msg = pr.message
-    return [dep.display, check, ver, msg]
+EVERYTHING = CORE + FRAMEWORKS + STL_TOOLS
 
+# ------------------------------- rendering ---------------------------------
 
-def _format_table(rows: list[list[str]], headers: list[str]) -> str:
-    # Simple fixed-width table without extra deps; keep dependencies zero.
-    widths = [max(len(h), *(len(r[i]) for r in rows)) for i, h in enumerate(headers)]
+def _status_icon(ok: bool, c: _Color, ascii_only: bool = False) -> str:
+    if ascii_only:
+        return "OK" if ok else "!!"
+    return (c.green + "✔" + c.reset) if ok else (c.red + "✖" + c.reset)
 
-    def fmt_row(r: list[str]) -> str:
-        return "  " + " | ".join(c.ljust(widths[i]) for i, c in enumerate(r))
+def _render_row(dep: Dependency, res: ProbeResult, c: _Color, *, ascii_only: bool) -> str:
+    parts: List[str] = []
+    good = res.imported and (dep.min_version is None or _meets(res.version, dep.min_version))
+    parts.append(_status_icon(good, c, ascii_only))
+    parts.append(f"{dep.display}")
+    ver = res.version or "—"
+    parts.append(ver)
+    msg = res.message
+    if dep.notes and msg == "OK":
+        msg = dep.notes
+    parts.append(msg)
+    # extra one‑liners
+    if res.extra:
+        extras = []
+        for k in ("gpu_name0", "cuda_available", "mps_available", "build_cuda", "java_ok_for_moonlight"):
+            if k in res.extra:
+                extras.append(f"{k}={res.extra[k]}")
+        if extras:
+            parts.append("[" + ", ".join(extras) + "]")
+    return "  ".join(parts)
 
-    sep = "  " + "-+-".join("-" * w for w in widths)
-    lines = [fmt_row(headers), sep]
-    lines.extend(fmt_row(r) for r in rows)
-    return "\n".join(lines)
+def _print_human(results: Mapping[str, Tuple[Dependency, ProbeResult]], *, ascii_only: bool, extended: bool) -> None:
+    c = _Color(enabled=_supports_color(sys.stdout) and not ascii_only)
+    sep = c.dim + ("-" * 79) + c.reset
+    print(c.bold + "physical-ai-stl • environment check" + c.reset)
+    print(sep)
+    def block(title: str, names: Iterable[str]) -> None:
+        print(c.blue + title + c.reset)
+        for name in names:
+            dep, res = results[name]
+            print("  " + _render_row(dep, res, c, ascii_only=ascii_only))
+        print(sep)
 
+    block("Core", [d.display for d in CORE])
+    block("Physics‑ML frameworks", [d.display for d in FRAMEWORKS])
+    block("STL / STREL", [d.display for d in STL_TOOLS])
 
-def _print_human(
-    results: dict[str, tuple[Dep, ProbeResult]],
-    ascii_only: bool,
-    extended: bool,
-) -> None:
-    print("Environment check:\n")
-    headers = ["Package", "OK", "Version", "Notes"]
+    # Helpful hints for missing items
+    hints: List[str] = []
+    for dep, res in results.values():
+        if not res.imported:
+            if dep.pip_names:
+                # prefer first pip name for hint
+                hints.append(f"pip install {dep.pip_names[0]}")
+    if hints:
+        print(c.magenta + "Install hints:" + c.reset)
+        # de‑duplicate while preserving order
+        seen = set()
+        unique = [h for h in hints if not (h in seen or seen.add(h))]
+        for h in unique:
+            print("  • " + h)
 
-    core_rows: list[list[str]] = []
-    for d in CORE:
-        dep, pr = results[d.display]
-        core_rows.append(_row(dep, pr, ascii_only))
-    print(_format_table(core_rows, headers))
+def _print_markdown(results: Mapping[str, Tuple[Dependency, ProbeResult]], *, extended: bool) -> None:
+    # Markdown table for README/issue pasting
+    headers = ["Status", "Package", "Version", "Notes"]
+    print("| " + " | ".join(headers) + " |\n| " + " | ".join(["---"] * len(headers)) + " |" )
+    for dep, res in results.values():
+        ok = res.imported and (dep.min_version is None or _meets(res.version, dep.min_version))
+        status = "OK" if ok else "Missing"
+        ver = res.version or "—"
+        note = res.message if res.message != "OK" else dep.notes
+        print(f"| {status} | {dep.display} | {ver} | {note} |")
 
-    if extended:
-        extra_rows: list[list[str]] = []
-        for d in EXTRA:
-            dep, pr = results[d.display]
-            extra_rows.append(_row(dep, pr, ascii_only))
-        print("\nExtras:\n")
-        print(_format_table(extra_rows, headers))
-
-    # Selected extra diagnostics
-    _, torch_res = results["PyTorch"]
-    if torch_res.present and torch_res.extra:
-        print("\nPyTorch details:")
-        for k in sorted(torch_res.extra.keys()):
-            print(f"  {k:<18}: {torch_res.extra[k]}")
-
-    _, moon_res = results["MoonLight (STREL)"]
-    if moon_res.present and moon_res.extra:
-        print("\nMoonLight extras:")
-        for k in ("java", "java_version", "java_ok_for_moonlight"):
-            if k in moon_res.extra and moon_res.extra[k]:
-                print(f"  {k:<18}: {moon_res.extra[k]}")
-
-    _, spat_res = results["SpaTiaL (spatial-spec)"]
-    if spat_res.present and spat_res.extra:
-        print("\nSpaTiaL extras:")
-        for k in ("ltlf2dfa", "mona", "windows_note"):
-            if k in spat_res.extra and spat_res.extra[k]:
-                print(f"  {k:<18}: {spat_res.extra[k]}")
-
-    # Python/platform + Python minimum per Neuromancer (>=3.9)
-    print("\nPython:", sys.version.replace("\n", " "))
-    print("Platform:", platform.platform())
-    if sys.version_info < (3, 9):
-        print("WARNING: Python 3.9+ recommended (Neuromancer requires Python >= 3.9)")
-
-
-def _print_markdown(results: dict[str, tuple[Dep, ProbeResult]], extended: bool) -> None:
-    def md_row(dep: Dep, pr: ProbeResult) -> str:
-        check = "✅" if pr.present else "❌"
-        ver = pr.version or ""
-        return f"| `{dep.display}` | {check} | `{ver}` | {pr.message} |"
-
-    print("### Environment check\n")
-    print("| Package | OK | Version | Notes |")
-    print("|---|:--:|:--:|---|")
-    for d in CORE:
-        dep, pr = results[d.display]
-        print(md_row(dep, pr))
-
-    if extended:
-        print("\n**Extras**\n")
-        print("| Package | OK | Version | Notes |")
-        print("|---|:--:|:--:|---|")
-        for d in EXTRA:
-            dep, pr = results[d.display]
-            print(md_row(dep, pr))
-
-    # Append additional diagnostics in fenced blocks
-    _, torch_res = results["PyTorch"]
-    if torch_res.present and torch_res.extra:
-        print("\n<details><summary>PyTorch details</summary>\n")
-        print("```text")
-        for k in sorted(torch_res.extra):
-            print(f"{k}: {torch_res.extra[k]}")
-        print("```")
-        print("</details>")
-
-    _, moon_res = results["MoonLight (STREL)"]
-    if moon_res.present and moon_res.extra:
-        print("\n<details><summary>MoonLight extras</summary>\n")
-        print("```text")
-        for k in sorted(moon_res.extra):
-            print(f"{k}: {moon_res.extra[k]}")
-        print("```")
-        print("</details>")
-
-    _, spat_res = results["SpaTiaL (spatial-spec)"]
-    if spat_res.present and spat_res.extra:
-        print("\n<details><summary>SpaTiaL extras</summary>\n")
-        print("```text")
-        for k in sorted(spat_res.extra):
-            print(f"{k}: {spat_res.extra[k]}")
-        print("```")
-        print("</details>")
-
-    print("\n```text")
-    print("Python:", sys.version.replace("\\n", " "))
-    print("Platform:", platform.platform())
-    if sys.version_info < (3, 9):
-        print("WARNING: Python 3.9+ recommended (Neuromancer requires Python >= 3.9)")
-    print("```")
-
-
-def _print_json(results: dict[str, tuple[Dep, ProbeResult]]) -> None:
-    payload: dict[str, dict[str, object]] = {}
-    for name, (dep, pr) in results.items():
-        payload[name] = {
-            "present": pr.present,
-            "imported": pr.imported,
-            "version": pr.version,
-            "message": pr.message,
-            "extra": pr.extra,
+def _print_json(results: Mapping[str, Tuple[Dependency, ProbeResult]]) -> None:
+    out = {
+        name: {
+            "present": res.present,
+            "imported": res.imported,
+            "version": res.version,
+            "message": res.message,
+            "extra": res.extra,
+            "required": dep.required,
+            "min_version": dep.min_version,
         }
-    # Attach environment basics
-    payload["_env"] = {
-        "python": sys.version,
-        "platform": platform.platform(),
-        "py39_plus": sys.version_info >= (3, 9),
+        for name, (dep, res) in results.items()
     }
-    print(json.dumps(payload, indent=2, sort_keys=True))
+    json.dump(out, sys.stdout, indent=2, sort_keys=True)
+    print()
 
+# ---------------------------------- main -----------------------------------
 
-def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(
-        description="Quick summary of required dependencies and their availability."
-    )
-    p.add_argument("--md", action="store_true", help="print a Markdown table")
-    p.add_argument("--json", action="store_true", help="print JSON")
-    p.add_argument(
-        "--import",
-        dest="do_import",
-        action="store_true",
-        help="actually import modules (slower, enables GPU details via torch)",
-    )
-    p.add_argument("--extended", action="store_true", help="also check extra convenience dependencies")
-    p.add_argument("--plain", action="store_true", help="ASCII only (no emoji)")
+def main(argv: Optional[List[str]] = None) -> int:
+    p = argparse.ArgumentParser(description="Check environment for physical-ai-stl.")
+    p.add_argument("--json", action="store_true", help="machine‑readable JSON output")
+    p.add_argument("--md", action="store_true", help="markdown table output")
+    p.add_argument("--plain", action="store_true", help="ASCII only (no colors/emoji)")
+    p.add_argument("--quick", action="store_true", help="skip external probes (java, nvidia‑smi)")
+    p.add_argument("--extended", action="store_true", help="reserved for future use (no‑op)")
     args = p.parse_args(argv)
 
-    # Probe everything
-    results: dict[str, tuple[Dep, ProbeResult]] = {}
-    for dep in CORE + EXTRA:
-        results[dep.display] = (dep, _probe(dep, args.do_import))
+    # Prepare color
+    c = _Color(enabled=_supports_color(sys.stdout) and not args.plain)
+
+    # Probe everything deterministically
+    results: Dict[str, Tuple[Dependency, ProbeResult]] = {}
+    for dep in EVERYTHING:
+        dep2 = dep
+        # adapt extra probes if --quick
+        if args.quick and dep.extra_probe in ( _probe_java, ):
+            dep2 = dataclasses.replace(dep, extra_probe=None)
+        d, r = _probe(dep2, quick=args.quick)
+        results[dep.display] = (d, r)
 
     if args.json:
         _print_json(results)
@@ -500,10 +470,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         _print_human(results, ascii_only=args.plain, extended=args.extended)
 
-    # Exit code: 0 if all required are present, else 1
-    missing = [d.display for d in CORE if not results[d.display][1].present]
-    return 0 if not missing else 1
+    # Exit 0 on all required present/importable with version OK
+    missing_core = [d.display for d in CORE if not results[d.display][1].imported]
+    return 0 if not missing_core else 1
 
-
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
