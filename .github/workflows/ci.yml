@@ -19,7 +19,6 @@ concurrency:
 env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PYTHONUNBUFFERED: "1"
-  UV_SYSTEM_PYTHON: "1"
   CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
 jobs:
@@ -81,12 +80,10 @@ jobs:
             requirements-dev.txt
             pyproject.toml
 
-      - name: Install dev tooling (pip)
+      - name: Install dev tooling (pip, no local build)
         run: |
           python -m pip install --upgrade pip wheel setuptools
           pip install -r requirements.txt -r requirements-dev.txt
-          # Install the package in editable mode using pip (avoid uv parsing of [tool.uv.*])
-          pip install -e .
 
       - name: Run pre-commit (format + lint + hygiene)
         uses: pre-commit/action@v3.0.1
@@ -128,11 +125,10 @@ jobs:
             requirements-dev.txt
             pyproject.toml
 
-      - name: Install minimal deps (pip)
+      - name: Install minimal deps (pip, no local build)
         run: |
           python -m pip install --upgrade pip wheel setuptools
           pip install -r requirements.txt -r requirements-dev.txt
-          pip install -e .
 
       - name: Run tests (exclude optional stacks)
         env:
@@ -185,16 +181,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y mona || true
 
-      - name: Install optional stacks (pip; best-effort)
+      - name: Install optional stacks (pip; best-effort; no local build)
         run: |
           python -m pip install --upgrade pip wheel setuptools
           pip install -r requirements.txt -r requirements-dev.txt
-          # Optional stacks (allow failure if some wheels unavailable)
           if [ -f requirements-extra.txt ]; then
             pip install -r requirements-extra.txt || true
           fi
-          # Install local package after deps
-          pip install -e .
 
       - name: Show key versions
         run: |
