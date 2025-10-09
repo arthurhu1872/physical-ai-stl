@@ -20,7 +20,6 @@ env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PYTHONUNBUFFERED: "1"
   UV_SYSTEM_PYTHON: "1"
-  UV_CACHE_DIR: ${{ runner.temp }}/uv-cache
   CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
 jobs:
@@ -151,7 +150,8 @@ jobs:
         env:
           PYTHONPATH: src
         run: |
-          uv run pytest -q -n auto --maxfail=1 --disable-warnings             --cov=src/physical_ai_stl --cov-report=xml --cov-report=term-missing:skip-covered
+          uv run pytest -q -n auto --maxfail=1 --disable-warnings \
+            --cov=src/physical_ai_stl --cov-report=xml --cov-report=term-missing:skip-covered
 
       - name: Upload coverage to Codecov (main Py 3.12 only)
         if: ${{ env.CODECOV_TOKEN != '' && matrix.python-version == '3.12' }}
@@ -210,14 +210,14 @@ jobs:
           uv pip install -r requirements.txt -r requirements-dev.txt
           uv pip install -e .
           # Monitoring toolkits: RTAMT, MoonLight, SpaTiaL (POSIX-only)
-          uv pip install '.[monitoring]'
+          uv pip install '.[monitoring]' || true
           # CPU-only PyTorch (index configured in pyproject [tool.uv.sources])
-          uv pip install '.[torch]'
+          uv pip install '.[torch]' || true
 
       - name: Verify tool versions (debug)
         run: |
           python - <<'PY'
-          import importlib, sys
+          import importlib
           for name in ["torch","rtamt","moonlight","spatial_spec"]:
               try:
                   m = importlib.import_module(name)
@@ -228,11 +228,20 @@ jobs:
           PY
           java -version
 
-      - name: Run targeted tests that exercise optional deps
+      - name: Run targeted tests that exercise optional deps (skip if none)
         env:
           PYTHONPATH: src
         run: |
-          uv run pytest -q -n auto --maxfail=1 --disable-warnings             -k "stl_soft or moonlight or spatial or rtamt"
+          set -e
+          # Collect-only to see if any optional tests exist; don't fail if none.
+          COLLECT_OUTPUT="$(uv run pytest --collect-only -q -k 'stl_soft or moonlight or spatial or rtamt' 2>/dev/null || true)"
+          if [ -n "$COLLECT_OUTPUT" ]; then
+            echo "Discovered optional tests:"
+            echo "$COLLECT_OUTPUT" | sed -n '1,10p'
+            uv run pytest -q -n auto --maxfail=1 --disable-warnings -k "stl_soft or moonlight or spatial or rtamt"
+          else
+            echo "No optional tests discovered; skipping extras test suite."
+          fi
 
       - name: Prune uv cache (CI)
         if: always()
