@@ -1,4 +1,46 @@
 from __future__ import annotations
+"""Evaluate a saved 2‑D heat‑equation rollout against a MoonLight STREL spec.
+
+This script is a small, dependency‑light evaluation harness used to *monitor*
+spatio‑temporal properties of 2‑D fields (e.g., a Heat2D simulation) with
+[MoonLight](https://github.com/MoonLightSuite/moonlight), via the helper
+glue in :mod:`physical_ai_stl.monitoring.moonlight_helper`.
+
+Key features
+------------
+- Accepts either a directory of per‑time `.npy` frames or a single 3‑D `.npy`
+  tensor with layout `(nx, ny, nt)` (or `(nt, nx, ny)` via `--layout t_xy`).
+- Auto‑detects boolean vs real‑valued semantics from the `.mls` script and
+  chooses whether to binarize the field accordingly; can be overridden with
+  `--binarize/--no-binarize`.
+- Robust, version‑agnostic call into MoonLight monitors (handles
+  `monitor_graph_time_series`, `monitorGraphTimeSeries`, and older
+  `monitor(...)` variants).
+- Fast and memory‑aware: uses memory‑mapped loads for large `.npy` files and
+  avoids materializing copies unless necessary.
+- Produces a concise human‑readable summary and (optionally) a JSON artifact.
+
+Example
+-------
+Evaluate the included *contain hotspot* spec (eventually, everywhere cool):
+
+    python scripts/eval_heat2d_moonlight.py \
+        --frames-dir results/heat2d \
+        --mls scripts/specs/contain_hotspot.mls --formula contain \
+        --out-json results/heat2d_moonlight.json
+
+This will **auto‑binarize** the field because the spec declares a boolean
+signal, using a threshold computed as `mean + k·std` (see `--z-k`) or a
+quantile threshold if `--quantile` is provided.
+
+Notes
+-----
+- If MoonLight (or the Python/JPype bridge) is unavailable, the script exits
+  gracefully with a short message so it can be invoked in environments without
+  Java during CI.
+- The graph is a 4‑neighborhood grid with configurable edge weight
+  (`--adj-weight`) to match common STREL examples.
+"""
 
 import argparse
 import json
@@ -6,6 +48,7 @@ import re
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -25,10 +68,11 @@ except Exception as exc:  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
-
+# Small utilities
+# ---------------------------------------------------------------------------
 
 def _natural_key(p: Path) -> tuple[tuple[int, int | str], ...]:
-    """Sort helper: natural order for filenames with numbers."""
+    """Natural sort helper for files like frame_1.npy, frame_10.npy, ..."""
     s = p.name
     parts = re.split(r"(\d+)", s)
     key: list[tuple[int, int | str]] = []
@@ -41,10 +85,10 @@ def _natural_key(p: Path) -> tuple[tuple[int, int | str], ...]:
 
 
 def _find_default_frames_dir() -> Path | None:
+    # Common locations in this repo
     candidates = [
-        Path("results/heat2d_frames"),  # older/default
-        Path("results/heat2d"),  # experiment/heat2d.py saves here
-        Path("results"),  # broad fallback (used with --glob)
+        Path("results/heat2d"),  # src/physical_ai_stl/experiments/heat2d.py saves here
+        Path("results"),         # broad fallback (used with --glob)
     ]
     for c in candidates:
         if c.exists():
@@ -96,14 +140,18 @@ def _read_text(path: Path) -> str:
 
 
 def _spec_declares_boolean_signal(mls_text: str) -> bool:
-    # Also check for 'domain boolean;' which sets Boolean semantics.
+    """Heuristically detect boolean semantics from an MLS script.
+
+    We check whether a `bool` signal is declared and/or `domain boolean;`.
+    This mirrors common MoonLight examples and keeps the CLI ergonomic.
+    """
     mt_sig = re.search(r"signal\s*\{[^}]*\bbool\b", mls_text, flags=re.IGNORECASE | re.DOTALL)
     mt_dom = re.search(r"domain\s+boolean\s*;", mls_text, flags=re.IGNORECASE)
     return bool(mt_sig or mt_dom)
 
 
 def _auto_threshold(u: np.ndarray, z_k: float | None, quantile: float | None) -> float:
-    flat = u.reshape(-1).astype(float)
+    flat = np.asarray(u, dtype=float).reshape(-1)
     if quantile is not None:
         if not (0.0 < quantile < 1.0):
             raise ValueError("--quantile must be in (0, 1)")
@@ -115,6 +163,33 @@ def _auto_threshold(u: np.ndarray, z_k: float | None, quantile: float | None) ->
     return float(m + k * s)
 
 
+def _slice_time(u: np.ndarray, t_start: int | None, t_end: int | None) -> np.ndarray:
+    """Slice a field `(nx, ny, nt)` by time indices without copying if possible."""
+    if t_start is None and t_end is None:
+        return u
+    t0 = 0 if t_start is None else int(t_start)
+    t1 = u.shape[-1] if t_end is None else int(t_end)
+    if t0 < 0 or t1 < 0 or t0 > t1 or t1 > u.shape[-1]:
+        raise ValueError(f"Invalid time slice [{t0}:{t1}] for nt={u.shape[-1]}")
+    return u[..., t0:t1]
+
+
+def _monitor_graph_time_series(mon: Any, graph: Any, sig: Any) -> Any:
+    """Robustly call into MoonLight monitor across API variants.
+
+    Tries, in this order:
+      - monitor_graph_time_series(graph, sig)   (modern Pythonic)
+      - monitorGraphTimeSeries(graph, sig)      (original CamelCase)
+      - monitor(graph, sig)                     (older generic)
+    """
+    for name in ("monitor_graph_time_series", "monitorGraphTimeSeries", "monitor"):
+        fn = getattr(mon, name, None)
+        if callable(fn):
+            return fn(graph, sig)
+    raise AttributeError("MoonLight monitor exposes none of "
+                         "'monitor_graph_time_series', 'monitorGraphTimeSeries', or 'monitor'.")
+
+
 def _summarize_spatiotemporal_output(out: object) -> dict:
     arr = np.asarray(out, dtype=float)
     if arr.ndim == 1:
@@ -122,7 +197,7 @@ def _summarize_spatiotemporal_output(out: object) -> dict:
         per_time = arr
     elif arr.ndim == 2:
         # time x nodes
-        per_time = arr.min(axis=1)  # require satisfaction at all nodes
+        per_time = arr.min(axis=1)  # require satisfaction at *all* nodes
     else:
         # unexpected, but try to squeeze
         arr2 = np.squeeze(arr)
@@ -134,9 +209,9 @@ def _summarize_spatiotemporal_output(out: object) -> dict:
             raise ValueError(f"Unexpected monitor output shape {arr.shape}")
 
     # Boolean semantics typically return +/-1; treat >0 as True.
-    sat_mask = per_time > 0.0
-    satisfied_eventually = bool(sat_mask.any())
-    first_sat_idx = int(np.argmax(sat_mask)) if satisfied_eventually else -1
+    satisfied_idx = np.flatnonzero(per_time > 0.0)
+    satisfied_eventually = bool(satisfied_idx.size > 0)
+    first_sat_idx = int(satisfied_idx[0]) if satisfied_eventually else -1
 
     return {
         "out_shape": tuple(arr.shape),
@@ -154,13 +229,14 @@ def main() -> None:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         description="Audit a saved Heat2D run with a MoonLight STREL spec.",
     )
+
+    # ---- Inputs --------------------------------------------------------------
     src = ap.add_argument_group("input source")
     src.add_argument(
         "--frames-dir",
         type=Path,
         default=None,
-        help="Directory containing 2‑D .npy frames (one file per time).",
-    )
+        help="Directory containing 2‑D .npy frames (one file per time).",    )
     src.add_argument(
         "--glob",
         type=str,
@@ -171,8 +247,7 @@ def main() -> None:
         "--field",
         type=Path,
         default=None,
-        help="Single .npy file with a 3‑D array (nx, ny, nt) or (nt, nx, ny).",
-    )
+        help="Single .npy file with a 3‑D array (nx, ny, nt) or (nt, nx, ny).",    )
     src.add_argument(
         "--layout",
         type=str,
@@ -199,32 +274,35 @@ def main() -> None:
         help="Formula name inside the .mls script.",
     )
 
+    timeg = ap.add_argument_group("time window (optional)")
+    timeg.add_argument("--t-start", type=int, default=None, help="Start index (inclusive). ")
+    timeg.add_argument("--t-end", type=int, default=None, help="End index (exclusive).")
+
+    graphg = ap.add_argument_group("graph")
+    graphg.add_argument("--adj-weight", type=float, default=1.0, help="Edge weight for the grid graph.")
+
     binz = ap.add_argument_group("binarization (used if spec expects boolean semantics)")
     binz.add_argument(
         "--binarize",
         dest="binarize",
         action="store_true",
-        help="Force binary signal (>= threshold → 1 else 0).",
-    )
+        help="Force binary signal (>= threshold → 1 else 0).",    )
     binz.add_argument(
         "--no-binarize",
         dest="binarize",
         action="store_false",
-        help="Force real-valued signal (no thresholding).",
-    )
+        help="Force real-valued signal (no thresholding).",    )
     binz.set_defaults(binarize=None)  # None = decide automatically from spec
     binz.add_argument(
         "--z-k",
         type=float,
         default=0.5,
-        help="Threshold = mean + k*std (ignored if --quantile is set).",
-    )
+        help="Threshold = mean + k*std (ignored if --quantile is set).",    )
     binz.add_argument(
         "--quantile",
         type=float,
         default=None,
-        help="If set, threshold = this quantile of all field values (0<q<1).",
-    )
+        help="If set, threshold = this quantile of all field values (0<q<1).",    )
     binz.add_argument(
         "--threshold",
         type=float,
@@ -249,20 +327,25 @@ def main() -> None:
         frames_dir = args.frames_dir or _find_default_frames_dir()
         if frames_dir is None:
             raise FileNotFoundError(
-                "No frames source found. Provide --field or --frames-dir (e.g., results/heat2d)."
-            )
+                "No frames source found. Provide --field or --frames-dir (e.g., results/heat2d)."            )
         frames = _glob_frames(frames_dir, args.glob)
         if not frames:
             raise FileNotFoundError(f"No frames matched {frames_dir}/{args.glob}")
         u, nx, ny, nt = _load_field_from_frames(frames)
 
-    # Optional explicit grid override
-    if args.nx is not None and args.nx != nx:
-        print(f"[warn] Overriding nx: detected {nx}, using {args.nx}")
+    # Optional grid override
+    if args.nx is not None:
         nx = int(args.nx)
-    if args.ny is not None and args.ny != ny:
-        print(f"[warn] Overriding ny: detected {ny}, using {args.ny}")
+    if args.ny is not None:
         ny = int(args.ny)
+
+    # Optional time slice (avoid copies; returns a view when possible)
+    u = _slice_time(u, args.t_start, args.t_end)
+    nt = int(u.shape[-1])
+
+    print(f"[input] field: shape=(nx={nx}, ny={ny}, nt={nt})")
+    print(f"[spec]  mls={args.mls}  formula={args.formula}")
+    print(f"[graph] 4-neighborhood grid weight={args.adj_weight}")
 
     # ---- Ensure spec exists; create a minimal default if missing -------------------------------
     if not args.mls.exists():
@@ -276,7 +359,7 @@ def main() -> None:
 
     mls = load_script_from_file(str(args.mls))
     mon = get_monitor(mls, args.formula)
-    graph = build_grid_graph(nx, ny)
+    graph = build_grid_graph(nx, ny, weight=float(args.adj_weight))
 
     # ---- Decide binarization based on spec (unless user overrode) ------------------------------
     mls_text = _read_text(args.mls)
@@ -297,9 +380,8 @@ def main() -> None:
     # field_to_signal returns nested lists with shape [t][node][feature] to cross the JNI boundary.
     sig = field_to_signal(u, threshold=None if thr is None else float(thr))
 
-    # Modern MoonLight Python interface supports a convenience method for STREL graph+signal.
-    # Our helper makes this uniform across versions.
-    out = mon.monitor_graph_time_series(graph, sig)  # type: ignore[attr-defined]
+    # Version‑agnostic bridge to the underlying Java method(s).
+    out = _monitor_graph_time_series(mon, graph, sig)
 
     # ---- Summarize results ---------------------------------------------------------------------
     summary = _summarize_spatiotemporal_output(out)
@@ -316,20 +398,16 @@ def main() -> None:
         }
     )
 
-    # Human-friendly printout
-    print("\n[MoonLight] STREL audit summary")
-    print("  grid:", f"{nx} x {ny}", "  time steps:", nt)
-    print("  spec:", f"{args.mls.name}  (formula: {args.formula})")
-    print("  binarize:", do_binarize, "  threshold:", "n/a" if thr is None else f"{thr:.6g}")
-    print("  output shape:", summary["out_shape"])
+    # Human‑friendly printout
+    print("\n[summary]")
+    print(f"  output shape: {summary['out_shape']}")
+    print(f"  per‑time length: {summary['per_time_len']}")
     if summary["satisfied_eventually"]:
-        print(
-            "  verdict: PASS — property satisfied at some time index "
-            f"t={summary['first_satisfaction_index']}"
-        )
+        print("  verdict: PASS — property satisfied at least once")
+        print(f"  first satisfaction index: t={summary['first_satisfaction_index']}")
     else:
         print("  verdict: FAIL — property never satisfied over the horizon")
-    print(f"  per-time min/max: {summary['per_time_min']:.3g} .. {summary['per_time_max']:.3g}\n")
+    print(f"  per‑time min/max: {summary['per_time_min']:.3g} .. {summary['per_time_max']:.3g}\n")
 
     # Optional JSON artifact
     if args.out_json is not None:
