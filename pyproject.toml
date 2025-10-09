@@ -4,174 +4,195 @@ build-backend = "hatchling.build"
 
 [project]
 name = "physical-ai-stl"
-description = "Signal Temporal Logic (STL) & spatio-temporal logic (STREL) monitoring utilities for physics-based ML models (neural ODE/PDE, physical AI)."
+description = "Prototyping STL/STREL monitoring with physics-ML (NeuroMANCER, TorchPhysics, PhysicsNeMo) for neural ODE/PDE models; evaluation scaffolding and reproducible experiments."
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
-# Keep runtime install lean for users and CI; heavy stacks are optional extras below.
-dependencies = ["numpy>=1.26,<2.0"]
-# Version lives in the package to avoid duplication.
-dynamic = ["version"]
-
-authors = [{ name = "physical-ai-stl contributors" }]
-
+authors = [{ name = "Arthur Hu et al." }]
 keywords = [
-  "signal temporal logic", "stl", "strel", "spatio-temporal",
-  "formal methods", "cyber-physical systems", "physics-informed",
-  "neural ode", "neural pde", "pinn", "pytorch"
+  "signal-temporal-logic",
+  "stl",
+  "strel",
+  "runtime-monitoring",
+  "scientific-ml",
+  "physics-informed",
+  "neural-ode",
+  "neural-pde",
+  "cyber-physical-systems",
 ]
-
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: MIT License",
-  "Topic :: Scientific/Engineering :: Artificial Intelligence",
-  "Topic :: Scientific/Engineering :: Mathematics",
+  "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Software Development :: Libraries",
 ]
+# Minimal runtime: keep lightweight and CPU-friendly by default.
+dependencies = [
+  "numpy>=1.26,<3.0",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/arthurhu1872/physical-ai-stl"
+Repository = "https://github.com/arthurhu1872/physical-ai-stl"
+Issues = "https://github.com/arthurhu1872/physical-ai-stl/issues"
 
 [project.optional-dependencies]
-# Optional PyTorch (kept separate so base installs remain light)
-torch = ["torch>=2.3,<3.0"]
+# Install just CPU torch by default; use official index for CUDA builds as needed.
+torch = [
+  "torch>=2.3,<3.0",
+]
 
-# STL/STREL monitoring stacks (opt-in)
+# STL monitoring toolkits (temporal + spatial). SpaTiaL's Python bindings target POSIX.
 monitoring = [
-  "rtamt>=0.3,<0.4",
+  "rtamt>=0.3.5",
+  # MoonLight Python wrapper for STREL
   "moonlight>=0.3.1",
-  "spatial-spec>=0.1.1; platform_system != 'Windows'",
-  "spatial @ git+https://github.com/KTH-RPL-Planiacs/SpaTiaL.git#subdirectory=spatial-lib; platform_system != 'Windows'",
+  # SpaTiaL (specification & monitoring). Requires MONA on Linux/macOS; not supported on Windows.
+  'spatial-spec>=0.1.1; platform_system != "Windows"',
+  # Pull the SpaTiaL python package from its subdirectory.
+  'spatial @ git+https://github.com/KTH-RPL-Planiacs/SpaTiaL.git#subdirectory=spatial-lib ; platform_system != "Windows"',
 ]
 
-# Physics-based ML frameworks (opt-in)
+# Physics-ML frameworks to evaluate.
 frameworks = [
-  "neuromancer>=1.5.4,<2.0",
-  "torchphysics>=1.0,<2.0",
-  "nvidia-physicsnemo>=1.2,<2.0; platform_system == 'Linux'",
+  # NeuroMANCER on PyPI as "neuromancer".
+  "neuromancer>=1.5.6,<2.0",
+  "torchphysics>=1.0.4,<2.0",
+  # PhysicsNeMo is Linux-first; enable where wheels exist.
+  'nvidia-physicsnemo>=1.2.0; platform_system == "Linux"',
 ]
 
-# Plotting & utilities used by examples/experiments (opt-in)
+# Visualization & utilities; SciPy pin depends on Python version per upstream support window.
 viz = [
   "matplotlib>=3.10,<4.0",
   "tqdm>=4.67",
-  "pyyaml>=6.0.2",
-  "scipy>=1.16; python_version >= '3.11'",
-  "scipy>=1.15,<1.16; python_version < '3.11'",
+  "PyYAML>=6.0.3",
+  'scipy>=1.16; python_version >= "3.11"',
+  'scipy>=1.15,<1.16; python_version < "3.11"',
 ]
 
-# Development aids (kept out of runtime installs)
+# Developer tools: fast formatting/linting, typing, tests, coverage.
 dev = [
-  "pytest>=8.4,<9.0",
-  "pytest-cov>=5.0,<6.0",
-  "ruff>=0.12,<0.13",
-  "mypy>=1.11,<2.0",
-  "types-PyYAML>=6.0.12",
+  "pytest>=8.2",
+  "pytest-cov>=5.0",
+  "mypy>=1.17",
+  "ruff>=0.13,<0.14",
+  "pre-commit>=3.7",
+  "codespell>=2.3",
+  "types-PyYAML>=6.0.12.20240917",
 ]
 
-# Convenience bundle for experiments (heavy; opt-in)
+# One-shot install for most use cases (CPU).
 all = [
   "torch>=2.3,<3.0",
-  "rtamt>=0.3,<0.4",
+  "rtamt>=0.3.5",
   "moonlight>=0.3.1",
-  "spatial-spec>=0.1.1; platform_system != 'Windows'",
-  "spatial @ git+https://github.com/KTH-RPL-Planiacs/SpaTiaL.git#subdirectory=spatial-lib; platform_system != 'Windows'",
-  "neuromancer>=1.5.4,<2.0",
-  "torchphysics>=1.0,<2.0",
-  "nvidia-physicsnemo>=1.2,<2.0; platform_system == 'Linux'",
+  'spatial-spec>=0.1.1; platform_system != "Windows"',
+  'spatial @ git+https://github.com/KTH-RPL-Planiacs/SpaTiaL.git#subdirectory=spatial-lib ; platform_system != "Windows"',
+  "neuromancer>=1.5.6,<2.0",
+  "torchphysics>=1.0.4,<2.0",
+  'nvidia-physicsnemo>=1.2.0; platform_system == "Linux"',
   "matplotlib>=3.10,<4.0",
   "tqdm>=4.67",
-  "pyyaml>=6.0.2",
-  "scipy>=1.16; python_version >= '3.11'",
-  "scipy>=1.15,<1.16; python_version < '3.11'",
+  "PyYAML>=6.0.3",
+  'scipy>=1.16; python_version >= "3.11"',
+  'scipy>=1.15,<1.16; python_version < "3.11"',
+  "pytest>=8.2",
+  "pytest-cov>=5.0",
+  "mypy>=1.17",
+  "ruff>=0.13,<0.14",
+  "pre-commit>=3.7",
+  "codespell>=2.3",
+  "types-PyYAML>=6.0.12.20240917",
 ]
 
 [tool.hatch.version]
 path = "src/physical_ai_stl/__init__.py"
 
 [tool.hatch.build.targets.wheel]
+# src/ layout
 packages = ["src/physical_ai_stl"]
-# Ship typing marker for type checkers.
-force-include = { "src/physical_ai_stl/py.typed" = "physical_ai_stl/py.typed" }
 
-[tool.hatch.build.targets.sdist]
-include = [
-  "src/**",
-  "tests/**",
-  "README.md",
-  "LICENSE",
-  "pyproject.toml",
-  "requirements.txt",
-  "requirements-dev.txt",
-  "requirements-extra.txt",
-  "configs/**",
-  "docs/**",
-  "scripts/**",
-  ".github/workflows/ci.yml",
-]
-exclude = ["**/__pycache__"]
+# Include typing marker in the wheel
+[tool.hatch.build.force-include]
+"src/physical_ai_stl/py.typed" = "physical_ai_stl/py.typed"
 
-# -----------------------------
-# Testing
-# -----------------------------
-[tool.pytest.ini_options]
-minversion = "8.0"
-addopts = "-q"
-testpaths = ["tests"]
-filterwarnings = ["ignore::DeprecationWarning"]
-
-# -----------------------------
-# Ruff (fast linter/formatter)
-# -----------------------------
+# --- Ruff (lint & format) ----------------------------------------------------
 [tool.ruff]
 line-length = 120
 target-version = "py310"
 
-[tool.ruff.lint]
-# Signal > noise: keep the rule set modest for speed, relax a few rules only for tests.
-select = ["E", "F", "I", "UP"]
-per-file-ignores = { "tests/**.py" = ["I001", "E501", "UP035", "UP038"] }
-
 [tool.ruff.format]
 quote-style = "preserve"
+indent-style = "space"
+docstring-code-format = true
 
-# -----------------------------
-# MyPy (practical strictness)
-# -----------------------------
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "F",   # pyflakes
+  "I",   # import sorting
+  "UP",  # pyupgrade
+]
+ignore = [
+  "D",   # docstring style (handled by convention)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E402", "F401", "E501"]
+
+# --- MyPy (typing) -----------------------------------------------------------
 [tool.mypy]
 python_version = "3.10"
-warn_unused_ignores = true
-warn_redundant_casts = true
+warn_return_any = true
 warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
 disallow_untyped_defs = true
+disallow_incomplete_defs = true
 no_implicit_optional = true
 check_untyped_defs = true
+strict_equality = true
 ignore_missing_imports = true
+plugins = []
 
-# -----------------------------
-# uv: deterministic, fast installs
-# -----------------------------
-[tool.uv]
-# So setup-uv doesn't fall back to "latest" at each run
-required-version = ">=0.8.15"
+# --- Pytest ------------------------------------------------------------------
+[tool.pytest.ini_options]
+addopts = "-q --maxfail=1"
+testpaths = ["tests"]
+filterwarnings = [
+  "ignore::DeprecationWarning",
+]
 
-[tool.uv.pip]
-# Fewer forks for faster resolution on CI
-fork-strategy = "fewest"
+# --- Coverage ----------------------------------------------------------------
+[tool.coverage.run]
+source = ["physical_ai_stl"]
+branch = true
+parallel = true
+omit = ["**/tests/*", "**/__init__.py"]
 
+[tool.coverage.report]
+exclude_lines = [
+  "pragma: no cover",
+  "if __name__ == .__main__.:",
+]
+
+# --- uv (package manager) ----------------------------------------------------
+# Make it easy to pull the right wheel indexes in CI and for contributors.
 [tool.uv.sources]
-# If torch is requested via extras, prefer CPU wheels to avoid multi-GB CUDA downloads
 torch = { index = "pytorch-cpu" }
-# NVIDIA PhysicsNeMo wheels live on NVIDIA's index
-"nvidia-physicsnemo" = { index = "nvidia" }
+nvidia-physicsnemo = { index = "nvidia" }
+"nvidia-physicsnemo.sym" = { index = "nvidia" }
 
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[[tool.uv.index]]
-name = "nvidia"
-url = "https://pypi.nvidia.com/simple"
-explicit = true
+[tool.uv.index]
+"pytorch-cpu" = "https://download.pytorch.org/whl/cpu"
+"nvidia" = "https://pypi.nvidia.com"
