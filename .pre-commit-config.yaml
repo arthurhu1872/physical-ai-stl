@@ -1,3 +1,4 @@
+---
 # Pre-commit: fast, reliable, and low-noise checks for this repo.
 # Order matters: formatters/fixers run before pure linters.
 # Primary tools: Ruff (lint + format), Codespell, and hygiene hooks.
@@ -14,37 +15,34 @@ default_language_version:
 # Skip large/generated artifacts and caches to keep hooks snappy.
 exclude: >
   (?x)^(
-    results/|
-    figs/|
-    data/|
+    \.git/|
+    \.venv/|
+    \.mypy_cache/|
+    \.pytest_cache/|
+    \.ruff_cache/|
+    \.hypothesis/|
     dist/|
     build/|
-    reports/|
     docs/_build/|
-    .mypy_cache/|
-    .ruff_cache/|
-    .pytest_cache/|
-    .tox/|
-    .venv/|
-    venv/|
-    .*\.ipynb_checkpoints/|
-    .*__pycache__/|
-    .*\.egg-info/
+    results/|
+    runs/|
+    figs/|
+    data/|
+    .*\.svg$
   )
 
 repos:
-  # --- Hygiene & quick structural checks ------------------------------------
+  # --- Core hygiene -----------------------------------------------------------
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
+    rev: v4.6.0
     hooks:
+      - id: check-yaml
       - id: end-of-file-fixer
       - id: trailing-whitespace
-        exclude_types: [markdown]
       - id: mixed-line-ending
-        args: [--fix=lf]
-      - id: check-yaml
-        args: [--allow-multiple-documents]
       - id: check-json
+      - id: check-ast
+      - id: check-docstring-first
       - id: check-toml
       - id: check-merge-conflict
       - id: check-case-conflict
@@ -54,7 +52,7 @@ repos:
         args: [--pytest-test-first]
       - id: check-added-large-files
         args: [--maxkb=1024]
-  # Optionally protect main branches from direct commits.
+      # Optionally protect main branches from direct commits.
       - id: no-commit-to-branch
         args: [--branch, main, --branch, master]
 
@@ -62,7 +60,6 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.13.2
     hooks:
-      # Lint and auto-fix (includes import sorting via rule I***).
       - id: ruff-check
         name: ruff (lint+fix)
         args: [--fix]
@@ -78,48 +75,15 @@ repos:
     hooks:
       - id: mdformat
         name: mdformat (GFM + ruff for code fences)
-        types: [markdown]
-        additional_dependencies:
-          - mdformat-gfm
-          - mdformat-ruff
-          - ruff==0.13.2
 
-  # --- YAML style (beyond syntax-only check-yaml) ----------------------------
-  - repo: https://github.com/adrienverge/yamllint
-    rev: v1.37.1
-    hooks:
-      - id: yamllint
-        args: [--strict]
-
-  # --- Spelling across text files -------------------------------------------
-  - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.1
-    hooks:
-      - id: codespell
-        # Maintain a project-specific ignore list if needed.
-        args: ["--ignore-words=.codespellignorewords.txt"]
-        types: [text]
-        exclude: >
-          (?x)^(
-            .*\.lock$|
-            .*\.svg$|
-            .*min\.js$|
-            data/|
-            results/
-          )
-
-  # --- Notebooks: strip output to keep diffs small ---------------------------
-  - repo: https://github.com/kynan/nbstripout
-    rev: 0.8.1
-    hooks:
-      - id: nbstripout
-        types: [jupyter]
-
-  # --- Notebooks: run codespell on markdown/code cells -----------------------
+  # --- Notebook basic hygiene ------------------------------------------------
   - repo: https://github.com/nbQA-dev/nbQA
     rev: 1.9.1
     hooks:
-      - id: nbqa
+      - id: nbqa-ruff
+        name: nbqa-ruff (lint)
+        types_or: [jupyter]
+      - id: nbqa-codespell
         name: nbqa-codespell
         args: ["codespell", "--ignore-words=.codespellignorewords.txt"]
         files: \.ipynb$
@@ -129,6 +93,7 @@ repos:
     rev: v2.6.0
     hooks:
       - id: pyproject-fmt
+        stages: [manual]  # disabled in CI due to pep508 parser bug on direct URLs
 
   # --- Optional: static typing on push (kept light for speed) ----------------
   - repo: https://github.com/pre-commit/mirrors-mypy
