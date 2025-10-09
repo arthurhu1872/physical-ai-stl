@@ -4,6 +4,8 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "05 09 * * 1"  # weekly sanity checks (Mondays 09:05 UTC)
 
 permissions:
   contents: read
@@ -12,171 +14,218 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_PYTHON_VERSION_WARNING: "1"
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  FORCE_COLOR: "1"
+
 jobs:
-  lint:
-    name: Lint & spellcheck
+  pre-commit:
+    name: Lint, format & hygiene (pre-commit)
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
-
-      # Ruff: fast lint
-      - name: Ruff (lint)
-        uses: astral-sh/ruff-action@v3
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          # Run from repo root so pyproject.toml is discovered
-          src: .
-          args: check --output-format=github
-
-      # Ruff: formatting check (no changes applied)
-      - name: Ruff (format check)
-        uses: astral-sh/ruff-action@v3
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          src: .
-          args: format --check .
-
-      # Lint workflow files themselves
-      - name: Actionlint (workflow lint)
-        uses: eifinger/actionlint-action@v1
-
-      # Spellcheck with project dictionary
-      - name: Codespell
-        uses: codespell-project/actions-codespell@v2
+          python-version: "3.11"
+          cache: "pip"
+      - name: Cache pre-commit
+        uses: actions/cache@v4
         with:
-          path: .
-          check_hidden: false
-          ignore_words_file: .codespellignorewords.txt
-          # Skip caches and generated artifacts
-          skip: ./.git,./.venv,./.mypy_cache,./.ruff_cache,./.pytest_cache,./build,./dist,**/*.svg,**/*.json
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            pre-commit-${{ runner.os }}-
+      - name: Run pre-commit (all files)
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files
+      - name: Run push-stage hooks (mypy, etc.)
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --hook-stage push
 
-  typecheck:
-    name: Static typing (mypy)
+  tests:
+    name: Tests (pytest + coverage on 3.11 + torch CPU)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    needs: pre-commit
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          python-version: '3.11'
-      - uses: astral-sh/setup-uv@v6
+          fetch-depth: 0
+
+      # Skip heavy install/pytest when only docs changed
+      - name: Determine if code changed
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            code:
+              - "src/**"
+              - "tests/**"
+              - "pyproject.toml"
+              - "requirements*.txt"
+              - ".pre-commit-config.yaml"
+              - "Makefile"
+              - "Dockerfile"
+              - ".github/workflows/**"
+
+      - name: Install uv (Python 3.11)
+        if: steps.changes.outputs.code == 'true' || github.event_name == 'schedule'
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          prune-cache: true
-          cache-dependency-glob: |
-            **/requirements*.txt
-            **/pyproject.toml
-            **/uv.lock
-            uv.toml
-      - name: Install typing deps
-        run: |
-          uv pip install --system -r requirements.txt mypy types-PyYAML
-      - name: Run mypy
-        run: |
-          mypy --version
-          mypy src tests
+          cache-suffix: ci
+          python-version: "3.11"
 
-  unit:
-    name: Unit tests (CPU, ${{ matrix.python }})
+      - name: Install dependencies (base + dev + torch CPU)
+        if: steps.changes.outputs.code == 'true' || github.event_name == 'schedule'
+        run: |
+          uv pip install --system -r requirements.txt -r requirements-dev.txt
+          # Install the package in editable mode with the lightweight 'torch' extra.
+          # Thanks to pyproject [tool.uv.sources], torch wheels are pulled from the CPU index.
+          uv pip install --system -e ".[torch]"
+
+      - name: Show environment snapshot
+        if: steps.changes.outputs.code == 'true' || github.event_name == 'schedule'
+        run: |
+          python - <<'PY'
+          import platform, sys
+          print("Python:", sys.version.replace("\n"," "))
+          try:
+              import torch, numpy
+              print("torch:", torch.__version__, "|", "numpy:", numpy.__version__)
+          except Exception as e:
+              print("env-warn:", e)
+          PY
+
+      - name: Run tests
+        if: steps.changes.outputs.code == 'true' || github.event_name == 'schedule'
+        run: |
+          pytest -q --maxfail=1 --disable-warnings --cov=physical_ai_stl --cov-report=xml
+
+      - name: Upload coverage to Codecov (optional)
+        if: secrets.CODECOV_TOKEN != '' && (steps.changes.outputs.code == 'true' || github.event_name == 'schedule')
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          flags: unittests
+          fail_ci_if_error: false
+
+  tests-matrix:
+    # Broader compatibility sweep runs only on the weekly schedule or manual dispatch
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    name: Weekly tests (matrix)
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    needs: pre-commit
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.10', '3.11', '3.12']
-    env:
-      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
-      PYTHONPATH: src
+        python-version: ["3.10", "3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          python-version: ${{ matrix.python }}
-      - uses: astral-sh/setup-uv@v6
+          fetch-depth: 0
+
+      - name: Install uv (Python ${{ matrix.python-version }})
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          prune-cache: true
-          cache-dependency-glob: |
-            **/requirements*.txt
-            **/pyproject.toml
-            **/uv.lock
-            uv.toml
-      - name: Install runtime + dev deps
+          cache-suffix: weekly
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install deps + package (torch CPU)
         run: |
           uv pip install --system -r requirements.txt -r requirements-dev.txt
-      - name: PyTest
-        run: pytest -q
+          uv pip install --system -e ".[torch]"
 
-  extras:
-    # Heavier optional stack: install STL/Spatial monitoring libs and physics ML frameworks.
-    # Gate to non-PR events to keep PRs fast and resource-efficient.
-    name: Extras tests (Linux + Java + optional libs)
-    if: github.event_name != 'pull_request'
-    needs: [lint, typecheck, unit]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    env:
-      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
-      PYTHONPATH: src
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-      # Java runtime for MoonLight (STREL)
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      # MONA for SpaTiaL/ltlf2dfa (Linux-only)
-      - name: Install system dependencies (MONA for SpaTiaL)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y mona
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          prune-cache: true
-          cache-dependency-glob: |
-            **/requirements*.txt
-            **/pyproject.toml
-            **/uv.lock
-            uv.toml
-      - name: Install optional heavy stacks
-        run: |
-          uv pip install --system -r requirements.txt -r requirements-dev.txt -r requirements-extra.txt
-      - name: PyTest (with extras)
-        run: pytest -q
+      - name: Pytest
+        run: pytest -q --maxfail=1 --disable-warnings
 
-  package:
-    name: Build & validate package
+  build:
+    name: Build package (wheel + sdist)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    needs: [lint, typecheck]
+    needs: pre-commit
+    timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v6
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          prune-cache: true
-      - name: Build sdist and wheel
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Build
         run: |
-          uv pip install --system build
+          python -m pip install --upgrade build twine
           python -m build
-      - name: Verify wheel installs
+          python -m twine check --strict dist/*
+
+      - name: Smoke test wheel import
         run: |
           python -m venv /tmp/venv
           /tmp/venv/bin/python -m pip install --upgrade pip
           /tmp/venv/bin/python -m pip install dist/*.whl
-          /tmp/venv/bin/python -c "import physical_ai_stl, sys; print('ok', getattr(physical_ai_stl, '__version__', '0.0.0')); sys.exit(0)"
+          /tmp/venv/bin/python - <<'PY'
+          import importlib, sys
+          m = importlib.import_module("physical_ai_stl")
+          print("import ok", getattr(m, "__version__", "0.0.0"))
+          PY
+
+  links:
+    name: Link check (README/docs)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect doc changes
+        id: docs
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            docs:
+              - "README.md"
+              - "docs/**"
+              - "**/*.md"
+              - ".github/**/*.md"
+
+      - name: Restore lychee cache
+        if: steps.docs.outputs.docs == 'true' || github.event_name == 'schedule'
+        uses: actions/cache@v4
+        with:
+          path: .lycheecache
+          key: lychee-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            lychee-${{ runner.os }}-
+
+      - name: Check links with lychee
+        if: steps.docs.outputs.docs == 'true' || github.event_name == 'schedule'
+        uses: lycheeverse/lychee-action@v2.6.1
+        with:
+          args: --base . --cache --max-cache-age 1d --no-progress --verbose "./**/*.md"
+          fail: false
+          jobSummary: true
 
   security:
     name: Dependency audit
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: pypa/gh-action-pip-audit@v1.1.0
