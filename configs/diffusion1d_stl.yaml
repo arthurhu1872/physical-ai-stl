@@ -1,3 +1,4 @@
+---
 # 1D diffusion PINN with STL safety constraint on the field amplitude
 # This config enforces the STL formula:  G_t [ max_x u(x,t) <= u_max ]
 # (global-in-time bound on the spatial maximum), using smooth robustness semantics.
@@ -20,28 +21,8 @@ grid:
   t_min: 0.0
   t_max: 1.0
 
-# Optimizer & sampling
-optim:
-  lr: 0.002                # Adam step size
-  epochs: 200              # training epochs
-  batch: 4096              # interior collocation points per step
-  weight_decay: 0.0
-  n_boundary: 256          # boundary samples per epoch (Dirichlet: u(0,t)=u(1,t)=0)
-  n_initial: 512           # initial-condition samples per epoch (default: sine IC)
-  sample_method: sobol     # low-discrepancy sampling for better coverage
-
-# Physics (heat/diffusion equation u_t = alpha * u_xx)
-physics:
-  alpha: 0.1               # diffusion coefficient
-
-# STL monitoring/penalty (enabled)
-stl:
-  use: true
-  weight: 10.0             # strength of STL penalty (balances PDE/BC/IC vs. STL)
-  u_max: 1.0               # safety bound on amplitude (consistent with sine IC amplitude)
-  temp: 0.05               # temperature for smooth mins/maxes (lower -> closer to hard min/max)
-  spatial: amax            # use spatial maximum to enforce the worst-case bound
-  every: 1                 # evaluate STL penalty every epoch (k=1) for strict enforcement
+# STL monitor grid (decoupled from training batch)
+stl_grid:
   n_x: 64                  # coarse grid for STL monitor (decoupled from training batch)
   n_t: 64
 
