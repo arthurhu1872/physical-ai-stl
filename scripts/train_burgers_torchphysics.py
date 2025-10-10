@@ -11,25 +11,6 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# 1D viscous Burgers' equation with TorchPhysics + optional STL safety term
-# ---------------------------------------------------------------------------
-# PDE:        u_t + u * u_x - nu * u_xx = 0        on (x,t) \in [x_min,x_max] x [t_min,t_max]
-# IC:         u(x, t_min) = -sin(pi * (x - x_min)/(x_max - x_min))
-# BC:         u(x_min, t) = u(x_max, t) = 0        (Dirichlet)
-# STL (opt):  G_{[t_min,t_max]} |u(x,t)| <= u_max  enforced softly on interior samples
-#
-# We use TorchPhysics Conditions + Lightning Solver and export a compact artifact
-# (grid evaluation + metadata) to results/burgers_{tag}.pt for downstream plotting.
-#
-# References:
-# - TorchPhysics API (Conditions, Domains, Models, Solver).  
-# - FCN architecture signature and NormalizationLayer.       
-# - RandomUniformSampler, Interval domains.                   
-# - STL monitoring concept via pointwise bound (soft).       (adapted from RTAMT/MoonLight ideas; see README links)
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class Args:
     # PDE / domain
@@ -68,6 +49,9 @@ class Args:
 
     # Fallback / CI
     dryrun: bool = False
+
+
+# ---------------------------------------------------------------------------
 
 
 def _parse_args() -> Args:
@@ -137,11 +121,16 @@ def _maybe_placeholder(args: Args) -> Path | None:
             return None
         args.results.mkdir(parents=True, exist_ok=True)
         out = args.results / f"burgers_{args.tag}.pt"
+        # minimal structure expected by utils_plot.py and downstream notebooks
+        import torch
+        X = torch.linspace(args.x_min, args.x_max, 16)
+        T = torch.linspace(args.t_min, args.t_max, 16)
+        U = torch.zeros((len(X), len(T)))
         ckpt = {
-            "u": torch.zeros(4, 4),
-            "X": torch.linspace(0, 1, 4),
-            "T": torch.linspace(0, 1, 4),
-            "u_max": 0.0,
+            "u": U,
+            "X": X,
+            "T": T,
+            "u_max": float(args.u_max),
             "args": asdict(args),
             "loss": None,
             "meta": {"mode": "dryrun"},
@@ -240,7 +229,21 @@ def main() -> None:
 
     # --- Model --------------------------------------------------------------
     norm = tp.models.NormalizationLayer(Omega * time_interval)
-    fcn = tp.models.FCN(input_space=X * T, output_space=U, hidden=tuple(args.hidden))
+    # Map string to activation module for the FCN
+    _act = str(args.activation).lower().strip()
+    if _act in {"tanh", "tanh()"}:
+        act_module = torch.nn.Tanh()
+    elif _act in {"relu", "relu()"}:
+        act_module = torch.nn.ReLU()
+    elif _act in {"gelu", "gelu()"}:
+        act_module = torch.nn.GELU()
+    elif _act in {"silu", "swish", "silu()"}:
+        act_module = torch.nn.SiLU()
+    else:
+        print(f"[WARN] Unknown activation '{args.activation}', defaulting to Tanh")
+        act_module = torch.nn.Tanh()
+
+    fcn = tp.models.FCN(input_space=X * T, output_space=U, hidden=tuple(args.hidden), activations=act_module)
     model = tp.models.Sequential(norm, fcn)
 
     # --- Conditions ---------------------------------------------------------
@@ -261,7 +264,7 @@ def main() -> None:
     # --- Trainer ------------------------------------------------------------
     use_gpu = (args.device == "gpu") or (args.device == "auto" and torch.cuda.is_available())
     accelerator = "gpu" if use_gpu else "cpu"
-    trainer = pytorch_lightning.Trainer(
+    trainer = pl.Trainer(
         devices=1,
         accelerator=accelerator,
         precision=args.precision,
@@ -314,6 +317,8 @@ def main() -> None:
             "X": Xg.cpu(),          # shape (n_x,)
             "T": Tg.cpu(),          # shape (n_t,)
             "u_max": float(torch.max(torch.abs(u_grid))),
+            "stl_rho_abs_leq": float(args.u_max - torch.max(torch.abs(u_grid))),
+            "stl_satisfied_abs_leq": bool((torch.max(torch.abs(u_grid)) <= args.u_max).item()),
             "args": asdict(args),
             "loss": final_loss,
             "meta": meta,
