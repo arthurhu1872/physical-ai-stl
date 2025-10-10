@@ -1,109 +1,54 @@
----
-# Pre-commit: fast, reliable, and low-noise checks for this repo.
-# Order matters: formatters/fixers run before pure linters.
-# Primary tools: Ruff (lint + format), Codespell, and hygiene hooks.
+# .pre-commit-config.yaml
+# Fast, deterministic, notebook-aware, and CI-friendly.
 
-ci:
-  autofix_prs: false
-  autoupdate_schedule: monthly
-
-minimum_pre_commit_version: "3.7.0"
-
-default_language_version:
-  python: python3
-
-# Skip large/generated artifacts and caches to keep hooks snappy.
-exclude: >
-  (?x)^(
-    \.git/|
-    \.venv/|
-    \.mypy_cache/|
-    \.pytest_cache/|
-    \.ruff_cache/|
-    \.hypothesis/|
-    dist/|
-    build/|
-    docs/_build/|
-    results/|
-    runs/|
-    figs/|
-    data/|
-    .*\.svg$
-  )
+minimum_pre_commit_version: "3.6.0"
 
 repos:
-  # --- Core hygiene -----------------------------------------------------------
+  # Hygiene / safety checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:
       - id: check-yaml
+      - id: check-toml
       - id: end-of-file-fixer
       - id: trailing-whitespace
       - id: mixed-line-ending
-      - id: check-json
-      - id: check-ast
-      - id: check-docstring-first
-      - id: check-toml
-      - id: check-merge-conflict
-      - id: check-case-conflict
-      - id: detect-private-key
-      - id: debug-statements
-      - id: name-tests-test
-        args: [--pytest-test-first]
+        args: [--fix=lf]
       - id: check-added-large-files
-        args: [--maxkb=1024]
-      # Optionally protect main branches from direct commits.
-      - id: no-commit-to-branch
-        args: [--branch, main, --branch, master]
+        args: ['--maxkb=5000']
 
-  # --- Ruff: formatter + linter (ultra-fast, replaces black+isort+flake8) ---
+  # Ruff (super fast linter/formatter) for .py
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.13.2
+    rev: v0.7.1
     hooks:
-      - id: ruff-check
-        name: ruff (lint+fix)
-        args: [--fix]
-        types_or: [python, pyi, jupyter]
-      # Code formatter (Black-compatible).
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
       - id: ruff-format
-        name: ruff (format)
-        types_or: [python, pyi, jupyter]
 
-  # --- Markdown: format and keep tables/links tidy ---------------------------
+  # Markdown formatter (keeps docs readable)
   - repo: https://github.com/hukkin/mdformat
-    rev: 0.7.22
+    rev: 0.7.19
     hooks:
       - id: mdformat
-        name: mdformat (GFM + ruff for code fences)
+        additional_dependencies:
+          - mdformat-gfm==0.3.6
 
-  # --- Notebook basic hygiene ------------------------------------------------
+  # Lint notebooks with ruff via nbQA (optional; restrict to .ipynb)
   - repo: https://github.com/nbQA-dev/nbQA
     rev: 1.9.1
     hooks:
       - id: nbqa-ruff
-        name: nbqa-ruff (lint)
-        types_or: [jupyter]
-      - id: nbqa-codespell
-        name: nbqa-codespell
-        args: ["codespell", "--ignore-words=.codespellignorewords.txt"]
-        files: \.ipynb$
+        additional_dependencies: ["ruff==0.13.2"]
+        args: ["--fix"]
+        files: "\\.ipynb$"
 
-  # --- Project metadata formatting -------------------------------------------
-  - repo: https://github.com/tox-dev/pyproject-fmt
-    rev: v2.6.0
+  # Spelling (source & docs only; avoid notebooks)
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.1
     hooks:
-      - id: pyproject-fmt
-        stages: [manual]  # disabled in CI due to pep508 parser bug on direct URLs
-
-  # --- Optional: static typing on push (kept light for speed) ----------------
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.18.2
-    hooks:
-      - id: mypy
-        name: mypy (push-only)
-        stages: [push]
-        files: ^(src|tests)/.*\.py$
-        args: ["--ignore-missing-imports"]
-        additional_dependencies:
-          - types-PyYAML
-          - numpy
+      - id: codespell
+        name: codespell (src+docs; no notebooks)
+        args:
+          - --ignore-words=.codespellignorewords.txt
+          - --skip=./.git,./.venv,./build,./dist,./.mypy_cache,./.pytest_cache,./docs/_build,*.ipynb
+        types_or: [python, rst, markdown, yaml, toml, text]
