@@ -3,13 +3,30 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
+import random
 import sys
 import time
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-
+# ---------------------------------------------------------------------------
+# 1D viscous Burgers' equation with TorchPhysics + optional STL safety term
+# ---------------------------------------------------------------------------
+# PDE:        u_t + u * u_x - nu * u_xx = 0        on (x,t) \in [x_min,x_max] x [t_min,t_max]
+# IC:         u(x, t_min) = -sin(pi * (x - x_min)/(x_max - x_min))
+# BC:         u(x_min, t) = u(x_max, t) = 0        (Dirichlet)
+# STL (opt):  G_{[t_min,t_max]} |u(x,t)| <= u_max  enforced softly on interior samples
+#
+# We use TorchPhysics Conditions + Lightning Solver and export a compact artifact
+# (grid evaluation + metadata) to results/burgers_{tag}.pt for downstream plotting.
+#
+# References:
+# - TorchPhysics API (Conditions, Domains, Models, Solver).  
+# - FCN architecture signature and NormalizationLayer.       
+# - RandomUniformSampler, Interval domains.                   
+# - STL monitoring concept via pointwise bound (soft).       (adapted from RTAMT/MoonLight ideas; see README links)
 # ---------------------------------------------------------------------------
 
 
@@ -28,11 +45,11 @@ class Args:
 
     # Sampling
     n_pde: int = 4096  # points in interior per step
-    n_ic: int = 1024  # points on t = t_min
-    n_bc: int = 512  # points on x = {x_min, x_max}
+    n_ic: int = 1024   # points on t = t_min
+    n_bc: int = 512    # points on x = {x_min, x_max}
     seed: int = 7
 
-    # STL penalty (|u| <= u_max globally in time and space samples)
+    # STL penalty (|u| <= u_max globally over sampled (x,t))
     lambda_stl: float = 0.0
     u_max: float = 1.0
 
@@ -40,7 +57,7 @@ class Args:
     lr: float = 1e-3
     max_steps: int = 5000
     device: str = "auto"  # "auto" | "cpu" | "gpu"
-    precision: int = 32  # 16 | 32 | 64 (PyTorch Lightning precision)
+    precision: int = 32   # 16 | 32 | 64 (PyTorch Lightning precision)
     log_every_n_steps: int = 100
 
     # Export
@@ -109,15 +126,17 @@ def _parse_args() -> Args:
 
 
 def _maybe_placeholder(args: Args) -> Path | None:
+    """Produce a tiny artifact without doing any heavy work.
+    This is used for CI or for environments without TorchPhysics/PyTorch Lightning.
+    """
     if args.dryrun:
         try:
-            import torch
+            import torch  # noqa: F401
         except Exception as exc:  # pragma: no cover
             print(f"Torch not available: {exc}")
             return None
         args.results.mkdir(parents=True, exist_ok=True)
         out = args.results / f"burgers_{args.tag}.pt"
-
         ckpt = {
             "u": torch.zeros(4, 4),
             "X": torch.linspace(0, 1, 4),
@@ -136,10 +155,20 @@ def _maybe_placeholder(args: Args) -> Path | None:
 # ---------------------------------------------------------------------------
 
 
+def _set_seed(seed: int) -> None:
+    random.seed(seed)
+    os.environ.setdefault("PYTHONHASHSEED", str(seed))
+    try:
+        import numpy as np  # type: ignore
+        np.random.seed(seed)
+    except Exception:
+        pass
+
+
 def main() -> None:
     args = _parse_args()
 
-    # Fast path if user requested a dry run (CI/quick smoke).
+    # Fast path if user requested a dry run.
     ph = _maybe_placeholder(args)
     if ph is not None:
         return
@@ -157,7 +186,7 @@ def main() -> None:
         _maybe_placeholder(args)
         return
 
-    # Reproducibility
+    _set_seed(args.seed)
     torch.manual_seed(args.seed)
 
     # --- Spaces & domains ---------------------------------------------------
@@ -166,23 +195,15 @@ def main() -> None:
     U = tp.spaces.R1("u")
 
     Omega = tp.domains.Interval(X, lower_bound=args.x_min, upper_bound=args.x_max)
-    time_interval = tp.domains.Interval(
-        T, lower_bound=args.t_min, upper_bound=args.t_max
-    )
+    time_interval = tp.domains.Interval(T, lower_bound=args.t_min, upper_bound=args.t_max)
 
     # --- Samplers -----------------------------------------------------------
     # Interior Ω×I  (for PDE residual)
-    sampler_pde = tp.samplers.RandomUniformSampler(
-        Omega * time_interval, n_points=args.n_pde
-    )
+    sampler_pde = tp.samplers.RandomUniformSampler(Omega * time_interval, n_points=args.n_pde)
     # Initial condition Ω×{t_min}
-    sampler_ic = tp.samplers.RandomUniformSampler(
-        Omega * time_interval.boundary_left, n_points=args.n_ic
-    )
+    sampler_ic = tp.samplers.RandomUniformSampler(Omega * time_interval.boundary_left, n_points=args.n_ic)
     # Dirichlet boundary ∂Ω×I (both ends)
-    sampler_bc = tp.samplers.RandomUniformSampler(
-        Omega.boundary * time_interval, n_points=args.n_bc
-    )
+    sampler_bc = tp.samplers.RandomUniformSampler(Omega.boundary * time_interval, n_points=args.n_bc)
 
     # --- Residuals ----------------------------------------------------------
     # Burgers PDE: u_t + u*u_x − nu*u_xx = 0
@@ -223,19 +244,11 @@ def main() -> None:
     model = tp.models.Sequential(norm, fcn)
 
     # --- Conditions ---------------------------------------------------------
-    cond_pde = tp.conditions.PINNCondition(
-        module=model, sampler=sampler_pde, residual_fn=residual_pde
-    )
-    cond_ic = tp.conditions.PINNCondition(
-        module=model, sampler=sampler_ic, residual_fn=residual_ic
-    )
-    cond_bc = tp.conditions.PINNCondition(
-        module=model, sampler=sampler_bc, residual_fn=residual_bc
-    )
-    # STL penalty operates on the same interior sampler (can be different); it is a soft safety loss.
-    cond_stl = tp.conditions.PINNCondition(
-        module=model, sampler=sampler_pde, residual_fn=lambda u, *_: residual_stl(u)
-    )
+    cond_pde = tp.conditions.PINNCondition(module=model, sampler=sampler_pde, residual_fn=residual_pde)
+    cond_ic = tp.conditions.PINNCondition(module=model, sampler=sampler_ic, residual_fn=residual_ic)
+    cond_bc = tp.conditions.PINNCondition(module=model, sampler=sampler_bc, residual_fn=residual_bc)
+    # STL penalty operates on the same interior sampler; it is a soft safety loss.
+    cond_stl = tp.conditions.PINNCondition(module=model, sampler=sampler_pde, residual_fn=lambda u, *_: residual_stl(u))
 
     train_conditions = [cond_pde, cond_ic, cond_bc]
     if args.lambda_stl > 0:
@@ -246,11 +259,9 @@ def main() -> None:
     solver = tp.solver.Solver(train_conditions=train_conditions, optimizer_setting=optim)
 
     # --- Trainer ------------------------------------------------------------
-    use_gpu = (args.device == "gpu") or (
-        args.device == "auto" and torch.cuda.is_available()
-    )
+    use_gpu = (args.device == "gpu") or (args.device == "auto" and torch.cuda.is_available())
     accelerator = "gpu" if use_gpu else "cpu"
-    trainer = pl.Trainer(
+    trainer = pytorch_lightning.Trainer(
         devices=1,
         accelerator=accelerator,
         precision=args.precision,
@@ -278,28 +289,30 @@ def main() -> None:
     Xg = torch.linspace(args.x_min, args.x_max, n_x)
     Tg = torch.linspace(args.t_min, args.t_max, n_t)
     xs, ts = torch.meshgrid(Xg, Tg, indexing="ij")  # shapes (n_x, n_t)
-    pts = torch.stack([xs.flatten(), ts.flatten()], dim=1)
+    pts = torch.stack([xs.reshape(-1), ts.reshape(-1)], dim=-1)  # (n_x*n_t, 2)
     points = tp.spaces.Points(pts, space=X * T)
     with torch.no_grad():
-        ug = model.forward(points).as_tensor.reshape(n_x, n_t)  # (x,t)
-    u_grid = ug.T.contiguous()  # (t,x) for convenient heatmaps
+        u_pred = model(points)  # (n_x*n_t, 1) in output space U
+    u_grid = u_pred.reshape(n_x, n_t).cpu()
 
-    out_dir = args.results
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"burgers_{args.tag}.pt"
+    args.results.mkdir(parents=True, exist_ok=True)
+    out_path = args.results / f"burgers_{args.tag}.pt"
     meta = {
-        "torchphysics": getattr(sys.modules.get("torchphysics"), "__version__", "unknown"),
-        "torch": torch.__version__,
-        "device": accelerator,
-        "train_time_s": round(train_time, 3),
-        "nu": args.nu,
-        "n_params": sum(p.numel() for p in model.parameters()),
+        "mode": "train",
+        "framework": "torchphysics",
+        "train_time_s": float(train_time),
+        "nu": float(args.nu),
+        "n_pde": int(args.n_pde),
+        "n_ic": int(args.n_ic),
+        "n_bc": int(args.n_bc),
+        "lambda_stl": float(args.lambda_stl),
+        "u_max": float(args.u_max),
     }
     torch.save(
         {
-            "u": u_grid,
-            "X": Xg,
-            "T": Tg,
+            "u": u_grid,            # shape (n_x, n_t)
+            "X": Xg.cpu(),          # shape (n_x,)
+            "T": Tg.cpu(),          # shape (n_t,)
             "u_max": float(torch.max(torch.abs(u_grid))),
             "args": asdict(args),
             "loss": final_loss,
@@ -308,9 +321,7 @@ def main() -> None:
         out_path,
     )
     umax = float(torch.max(torch.abs(u_grid)))
-    print(
-        f"[OK] Saved results to {out_path.resolve()} (grid: {n_t}×{n_x}, u_max={umax:.4f})"
-    )
+    print(f"[OK] Saved results to {out_path.resolve()} (grid: {n_t}×{n_x}, u_max={umax:.4f})")
 
 
 if __name__ == "__main__":
