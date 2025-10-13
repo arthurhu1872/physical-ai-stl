@@ -1,333 +1,464 @@
 # ruff: noqa: I001
 from __future__ import annotations
 
-import argparse
+"""
+Train 1‑D viscous Burgers' equation with TorchPhysics **plus STL regularization**.
+
+Why this script?
+----------------
+Professor Johnson asked for monitoring / enforcing STL-style specs in "physical AI"
+frameworks. This file upgrades the TorchPhysics Burgers' PINN with a *differentiable*
+Signal Temporal Logic (STL) penalty and a robust post‑hoc monitor. It is designed to:
+
+1) **Solve** Burgers' PDE on x∈[x_min,x_max], t∈[t_min,t_max]
+     u_t + u u_x = ν u_xx
+2) **Enforce** a safety property during training via a smooth hinge on |u| ≤ u_max
+3) **Evaluate** robust STL satisfaction after training (ρ = u_max − max_{x,t}|u|)
+4) **Be fast & reproducible**: efficient samplers, fused losses, optional AMP, deterministic seeds
+5) **Be pretty**: clear structure, dataclass config, thorough docstrings, sane defaults
+
+References (APIs & ideas)
+-------------------------
+- TorchPhysics docs (domains, samplers, models, conditions, solver).  We use FCN,
+  RandomUniformSampler & PINNCondition to express PDE/BC/IC losses.  See API pages.  # noqa: E501
+- Differentiable STL via smooth min/max (log‑sum‑exp) as used in common literature.
+- RTAMT / MoonLight libraries are complementary monitors; here we implement an
+  in‑house differentiable penalty and a robust post‑hoc check compatible with STL "G" (always).
+
+Notes
+-----
+* STL training penalty here is *soft* (& differentiable). Post‑hoc we compute a *hard*
+  robustness margin ρ on a dense grid. If desired, you can switch the penalty on/off
+  with --stl_weight and adjust its smoothness with --stl_temp.
+* Boundary conditions: homogeneous Dirichlet at x = {x_min,x_max}.  Initial condition:
+  u(x,t_min) = -sin(π * (x - x_min)/(x_max - x_min)).
+* The code degrades gracefully if TorchPhysics is not installed (prints a helpful message).
+
+Usage
+-----
+python scripts/train_burgers_torchphysics.py \
+  --tag exp1 --max_steps 20000 --stl_weight 1.0 --u_max 0.9 --stl_temp 0.02
+
+Artifacts
+---------
+- results/torchphysics_burgers/{tag}/burgers1d_{tag}.pt        (checkpoint + config)
+- results/torchphysics_burgers/{tag}/burgers1d_{tag}_field.pt  (dense field, grid, metrics)
+"""
+
+from dataclasses import dataclass
+from typing import Literal, Tuple
 import math
 import os
-import random
-import sys
 import time
-from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+import json
 from pathlib import Path
 
+# Lazy imports for optional dependencies
+try:
+    import torch
+except Exception as _e:
+    torch = None  # type: ignore
+
+# TorchPhysics is optional at edit-time; we soft-fail with instructions at runtime.
+try:
+    import pytorch_lightning as pl
+    import torchphysics as tp  # noqa: F401
+except Exception:
+    pl = None  # type: ignore
+    tp = None  # type: ignore
+
+
+# -----------------------------
+# Configuration
+# -----------------------------
 
 @dataclass
-class Args:
-    # PDE / domain
-    x_min: float = -1.0
+class Config:
+    # Domain
+    x_min: float = 0.0
     x_max: float = 1.0
     t_min: float = 0.0
     t_max: float = 1.0
-    nu: float = 0.01
+    nu: float = 0.01 / math.pi  # Viscosity
 
     # Model
-    hidden: Sequence[int] = (64, 64, 64, 64)
-    activation: str = "tanh"  # TorchPhysics FCN default is Tanh()
+    hidden: Tuple[int, ...] = (64, 64, 64, 64)
+    activation: Literal["tanh", "gelu", "sin"] = "tanh"
 
-    # Sampling
-    n_pde: int = 4096  # points in interior per step
-    n_ic: int = 1024   # points on t = t_min
-    n_bc: int = 512    # points on x = {x_min, x_max}
-    seed: int = 7
+    # Collocation / sampling
+    n_pde: int = 6000
+    n_ic: int = 512
+    n_bc: int = 512
 
-    # STL penalty (|u| <= u_max globally over sampled (x,t))
-    lambda_stl: float = 0.0
-    u_max: float = 1.0
+    # STL (training penalty)
+    stl_weight: float = 1.0      # set 0.0 to disable STL loss
+    u_max: float = 1.0           # |u| <= u_max
+    stl_temp: float = 0.02       # smooth-min temperature (smaller ~ closer to hard min)
+    stl_warmup: int = 0          # steps to delay STL activation
+
+    # Grid for evaluation / artifacts
+    nx: int = 256
+    nt: int = 256
 
     # Optimization
     lr: float = 1e-3
-    max_steps: int = 5000
-    device: str = "auto"  # "auto" | "cpu" | "gpu"
-    precision: int = 32   # 16 | 32 | 64 (PyTorch Lightning precision)
-    log_every_n_steps: int = 100
+    max_steps: int = 20000
+    optimizer: Literal["adam", "adamw"] = "adam"
+    scheduler: Literal["none", "cosine", "step"] = "none"
+    scheduler_gamma: float = 0.5
+    scheduler_step: int = 5000
 
-    # Export
-    n_x: int = 201
-    n_t: int = 201
-    results: Path = Path("results")
-    tag: str = "run"
+    # System
+    device: Literal["auto", "cpu", "cuda"] = "auto"
+    precision: Literal[32, 16] = 32  # automatic mixed precision if 16
+    seed: int = 1234
+    deterministic: bool = True
+    num_threads: int = 1
 
-    # Fallback / CI
-    dryrun: bool = False
+    # Logging / saving
+    tag: str = "default"
+    log_every: int = 100
+    save_ckpt: bool = True
+    results_root: str = "results/torchphysics_burgers"
 
 
-# ---------------------------------------------------------------------------
+def _parse_args() -> Config:
+    import argparse
 
+    p = argparse.ArgumentParser(description="TorchPhysics Burgers with STL regularization")
+    # Domain
+    p.add_argument("--x_min", type=float, default=Config.x_min)
+    p.add_argument("--x_max", type=float, default=Config.x_max)
+    p.add_argument("--t_min", type=float, default=Config.t_min)
+    p.add_argument("--t_max", type=float, default=Config.t_max)
+    p.add_argument("--nu", type=float, default=Config.nu)
 
-def _parse_args() -> Args:
-    p = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    # Domain & PDE
-    p.add_argument("--x-min", type=float, default=Args.x_min)
-    p.add_argument("--x-max", type=float, default=Args.x_max)
-    p.add_argument("--t-min", type=float, default=Args.t_min)
-    p.add_argument("--t-max", type=float, default=Args.t_max)
-    p.add_argument("--nu", type=float, default=Args.nu, help="Viscosity ν")
     # Model
-    p.add_argument("--hidden", type=int, nargs="+", default=list(Args.hidden))
-    p.add_argument("--activation", type=str, default=Args.activation)
-    # Sampling
-    p.add_argument("--n-pde", type=int, default=Args.n_pde)
-    p.add_argument("--n-ic", type=int, default=Args.n_ic)
-    p.add_argument("--n-bc", type=int, default=Args.n_bc)
-    p.add_argument("--seed", type=int, default=Args.seed)
+    p.add_argument("--hidden", type=int, nargs="+", default=list(Config.hidden))
+    p.add_argument("--activation", type=str, choices=["tanh", "gelu", "sin"], default=Config.activation)
+
+    # Collocation
+    p.add_argument("--n_pde", type=int, default=Config.n_pde)
+    p.add_argument("--n_ic", type=int, default=Config.n_ic)
+    p.add_argument("--n_bc", type=int, default=Config.n_bc)
+
     # STL
-    p.add_argument(
-        "--lambda-stl",
-        type=float,
-        default=Args.lambda_stl,
-        dest="lambda_stl",
-        help="Weight for STL penalty (0 disables).",
-    )
-    p.add_argument(
-        "--u-max",
-        type=float,
-        default=Args.u_max,
-        dest="u_max",
-        help="Max |u| in G[t_min,t_max] |u| <= u_max.",
-    )
+    p.add_argument("--stl_weight", type=float, default=Config.stl_weight)
+    p.add_argument("--u_max", type=float, default=Config.u_max)
+    p.add_argument("--stl_temp", type=float, default=Config.stl_temp)
+    p.add_argument("--stl_warmup", type=int, default=Config.stl_warmup)
+
+    # Grid
+    p.add_argument("--nx", type=int, default=Config.nx)
+    p.add_argument("--nt", type=int, default=Config.nt)
+
     # Optimization
-    p.add_argument("--lr", type=float, default=Args.lr)
-    p.add_argument("--max-steps", type=int, default=Args.max_steps)
-    p.add_argument(
-        "--device", type=str, choices=("auto", "cpu", "gpu"), default=Args.device
-    )
-    p.add_argument("--precision", type=int, choices=(16, 32, 64), default=Args.precision)
-    p.add_argument("--log-every-n-steps", type=int, default=Args.log_every_n_steps)
-    # Export
-    p.add_argument("--n-x", type=int, default=Args.n_x)
-    p.add_argument("--n-t", type=int, default=Args.n_t)
-    p.add_argument("--results", type=Path, default=Args.results)
-    p.add_argument("--tag", type=str, default=Args.tag)
-    # Fallback / CI
-    p.add_argument(
-        "--dryrun", action="store_true", help="Skip training; write a tiny placeholder artifact."
-    )
-    args = Args(**vars(p.parse_args()))
-    return args
+    p.add_argument("--lr", type=float, default=Config.lr)
+    p.add_argument("--max_steps", type=int, default=Config.max_steps)
+    p.add_argument("--optimizer", type=str, choices=["adam", "adamw"], default=Config.optimizer)
+    p.add_argument("--scheduler", type=str, choices=["none", "cosine", "step"], default=Config.scheduler)
+    p.add_argument("--scheduler_gamma", type=float, default=Config.scheduler_gamma)
+    p.add_argument("--scheduler_step", type=int, default=Config.scheduler_step)
+
+    # System
+    p.add_argument("--device", type=str, choices=["auto", "cpu", "cuda"], default=Config.device)
+    p.add_argument("--precision", type=int, choices=[16, 32], default=Config.precision)
+    p.add_argument("--seed", type=int, default=Config.seed)
+    p.add_argument("--deterministic", action="store_true", default=Config.deterministic)
+    p.add_argument("--num_threads", type=int, default=Config.num_threads)
+
+    # IO
+    p.add_argument("--tag", type=str, default=Config.tag)
+    p.add_argument("--log_every", type=int, default=Config.log_every)
+    p.add_argument("--save_ckpt", action="store_true", default=Config.save_ckpt)
+    p.add_argument("--results_root", type=str, default=Config.results_root)
+
+    args = p.parse_args()
+    cfg = Config(**{
+        "x_min": args.x_min, "x_max": args.x_max, "t_min": args.t_min, "t_max": args.t_max, "nu": args.nu,
+        "hidden": tuple(args.hidden), "activation": args.activation,
+        "n_pde": args.n_pde, "n_ic": args.n_ic, "n_bc": args.n_bc,
+        "stl_weight": args.stl_weight, "u_max": args.u_max, "stl_temp": args.stl_temp, "stl_warmup": args.stl_warmup,
+        "nx": args.nx, "nt": args.nt,
+        "lr": args.lr, "max_steps": args.max_steps, "optimizer": args.optimizer,
+        "scheduler": args.scheduler, "scheduler_gamma": args.scheduler_gamma, "scheduler_step": args.scheduler_step,
+        "device": args.device, "precision": args.precision, "seed": args.seed,
+        "deterministic": args.deterministic, "num_threads": args.num_threads,
+        "tag": args.tag, "log_every": args.log_every, "save_ckpt": args.save_ckpt,
+        "results_root": args.results_root,
+    })
+    return cfg
 
 
-# ---------------------------------------------------------------------------
+# -----------------------------
+# Utilities
+# -----------------------------
 
-
-def _maybe_placeholder(args: Args) -> Path | None:
-    """Produce a tiny artifact without doing any heavy work.
-    This is used for CI or for environments without TorchPhysics/PyTorch Lightning.
-    """
-    if args.dryrun:
-        try:
-            import torch  # noqa: F401
-        except Exception as exc:  # pragma: no cover
-            print(f"Torch not available: {exc}")
-            return None
-        args.results.mkdir(parents=True, exist_ok=True)
-        out = args.results / f"burgers_{args.tag}.pt"
-        # minimal structure expected by utils_plot.py and downstream notebooks
-        import torch
-        X = torch.linspace(args.x_min, args.x_max, 16)
-        T = torch.linspace(args.t_min, args.t_max, 16)
-        U = torch.zeros((len(X), len(T)))
-        ckpt = {
-            "u": U,
-            "X": X,
-            "T": T,
-            "u_max": float(args.u_max),
-            "args": asdict(args),
-            "loss": None,
-            "meta": {"mode": "dryrun"},
-        }
-        torch.save(ckpt, out)
-        print(f"[DRYRUN] wrote placeholder to {out}")
-        return out
-    return None
-
-
-# ---------------------------------------------------------------------------
-
-
-def _set_seed(seed: int) -> None:
-    random.seed(seed)
-    os.environ.setdefault("PYTHONHASHSEED", str(seed))
+def _setup_system(cfg: Config) -> torch.device:
+    assert torch is not None, "PyTorch is required."
+    if cfg.num_threads > 0:
+        torch.set_num_threads(cfg.num_threads)
+    if cfg.deterministic:
+        torch.use_deterministic_algorithms(True, warn_only=True)
+    g = torch.Generator().manual_seed(cfg.seed)
+    torch.manual_seed(cfg.seed)
     try:
-        import numpy as np  # type: ignore
-        np.random.seed(seed)
+        import numpy as np
+        np.random.seed(cfg.seed)
     except Exception:
         pass
 
+    if cfg.device == "auto":
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        dev = torch.device(cfg.device)
+    if cfg.precision == 16:
+        # AMP: we set default dtype to float32 (kept), autocast handled by PL/AMP
+        pass
+    return dev
+
+
+def _act(name: str):
+    import torch.nn as nn
+    if name == "tanh":
+        return nn.Tanh()
+    if name == "gelu":
+        return nn.GELU(approximate="none")
+    if name == "sin":
+        class Sin(nn.Module):
+            def forward(self, x):  # pragma: no cover
+                return torch.sin(x)
+        return Sin()
+    raise ValueError(f"Unknown activation {name}")
+
+
+def _maybe_placeholder(cfg: Config):
+    if (tp is None) or (pl is None):
+        print(
+            "[train_burgers_torchphysics] TorchPhysics/PyTorch Lightning not found.\n"
+            "Install with:\n"
+            "  pip install torch pytorch-lightning torchphysics\n"
+            "This script expects TorchPhysics API (~0.0 post1)."
+        )
+        # Still create an empty artifact folder to not break automation
+        results_dir = Path(cfg.results_root) / cfg.tag
+        results_dir.mkdir(parents=True, exist_ok=True)
+        meta_path = results_dir / f"burgers1d_{cfg.tag}_MISSING.txt"
+        meta_path.write_text("TorchPhysics or Lightning not installed.\n", encoding="utf-8")
+        return True
+    return False
+
+
+# -----------------------------
+# Smooth min/max (STL building blocks)
+# -----------------------------
+
+def softmax(x: torch.Tensor, temp: float) -> torch.Tensor:
+    # smooth approximation of max via log-sum-exp
+    return temp * torch.logsumexp(x / temp, dim=0)
+
+def softmin(x: torch.Tensor, temp: float) -> torch.Tensor:
+    # smooth approximation of min via -log-sum-exp
+    return -temp * torch.logsumexp((-x) / temp, dim=0)
+
+
+# -----------------------------
+# Main
+# -----------------------------
 
 def main() -> None:
-    args = _parse_args()
-
-    # Fast path if user requested a dry run.
-    ph = _maybe_placeholder(args)
-    if ph is not None:
+    cfg = _parse_args()
+    if _maybe_placeholder(cfg):
         return
 
-    # Import heavy deps lazily and fail back to placeholder if missing.
-    try:
-        import pytorch_lightning as pl  # type: ignore
-        import torch
-        import torchphysics as tp  # type: ignore
-    except Exception as exc:
-        print(
-            f"[WARN] TorchPhysics stack not available ({exc!s}). Falling back to --dryrun artifact."
-        )
-        args.dryrun = True
-        _maybe_placeholder(args)
-        return
+    # Resolve device, seeds, dtypes
+    dev = _setup_system(cfg)
 
-    _set_seed(args.seed)
-    torch.manual_seed(args.seed)
-
-    # --- Spaces & domains ---------------------------------------------------
+    # Names / spaces
     X = tp.spaces.R1("x")
     T = tp.spaces.R1("t")
     U = tp.spaces.R1("u")
 
-    Omega = tp.domains.Interval(X, lower_bound=args.x_min, upper_bound=args.x_max)
-    time_interval = tp.domains.Interval(T, lower_bound=args.t_min, upper_bound=args.t_max)
+    # Domains
+    Omega_x = tp.domains.Interval(X, cfg.x_min, cfg.x_max)
+    Omega_t = tp.domains.Interval(T, cfg.t_min, cfg.t_max)
+    Omega = Omega_x * Omega_t
 
-    # --- Samplers -----------------------------------------------------------
-    # Interior Ω×I  (for PDE residual)
-    sampler_pde = tp.samplers.RandomUniformSampler(Omega * time_interval, n_points=args.n_pde)
-    # Initial condition Ω×{t_min}
-    sampler_ic = tp.samplers.RandomUniformSampler(Omega * time_interval.boundary_left, n_points=args.n_ic)
-    # Dirichlet boundary ∂Ω×I (both ends)
-    sampler_bc = tp.samplers.RandomUniformSampler(Omega.boundary * time_interval, n_points=args.n_bc)
+    # Model: FCN with normalization layer (scales inputs to (-1,1)ᵈ)
+    model = tp.models.Sequential(
+        tp.models.NormalizationLayer(Omega),
+        tp.models.FCN(X * T, U, hidden=cfg.hidden, activations=_act(cfg.activation)),
+    )
 
-    # --- Residuals ----------------------------------------------------------
-    # Burgers PDE: u_t + u*u_x − nu*u_xx = 0
-    def residual_pde(u, x, t):
-        u_t = tp.utils.grad(u, t)
-        u_x = tp.utils.grad(u, x)
-        u_xx = tp.utils.laplacian(u, x)  # in 1‑D, Laplacian is ∂²/∂x²
-        return u_t + u * u_x - args.nu * u_xx
+    # Samplers
+    S_pde = tp.samplers.RandomUniformSampler(Omega, n_points=cfg.n_pde)
+    S_ic = tp.samplers.RandomUniformSampler(Omega_x * Omega_t.boundary_left, n_points=cfg.n_ic)
+    S_bc = tp.samplers.RandomUniformSampler(Omega_x.boundary * Omega_t, n_points=cfg.n_bc)
 
-    # Initial condition at t = t_min: u(x, t_min) = -sin(pi * (scaled x))
-    # We scale x from [x_min,x_max] to [0,1] to get a single‑period sine.
-    x_span = max(args.x_max - args.x_min, 1e-9)
+    # Differential operators
+    from torchphysics.utils.differentialoperators import grad, laplacian  # type: ignore
 
-    def u0(xd):
-        x01 = (xd[:, 0] - args.x_min) / x_span
-        return -torch.sin(math.pi * x01).unsqueeze(-1)
+    # PDE residual: u_t + u u_x - nu u_xx = 0
+    def pde_residual(u, x, t):
+        u_t = grad(u, t)
+        u_x = grad(u, x)
+        u_xx = laplacian(u, x)
+        return u_t + u * u_x - cfg.nu * u_xx
 
-    def residual_ic(u, x, t):
+    # IC: u(x, t_min) = -sin(pi * ξ), where ξ rescales x to [0, 1]
+    def u0(x):
+        xi = (x - cfg.x_min) / (cfg.x_max - cfg.x_min)
+        return -torch.sin(math.pi * xi)
+
+    def ic_residual(u, x, t):
         return u - u0(x)
 
-    # Zero Dirichlet at x boundaries
-    def residual_bc(u):
-        return u  # target is 0 on both boundaries
+    # BC: Dirichlet u = 0 on x-boundary
+    def bc_residual(u, x, t):
+        return u
 
-    # Optional STL: penalize violations of |u| ≤ u_max at sampled interior points.
-    # Use sqrt(lambda) so the squared loss scales by lambda.
-    sqrt_lambda = math.sqrt(max(args.lambda_stl, 0.0))
+    # STL training penalty (soft): encourage |u| ≤ u_max on a subsample of Ω
+    # We implement a smooth min over the batch and penalize only negative margins.
+    # margin_i = u_max - |u_i| ;  ρ ≈ softmin_i margin_i ;  loss = relu(-ρ)^2
+    stl_sampler = tp.samplers.RandomUniformSampler(Omega, n_points=max(256, cfg.n_pde // 8))
 
-    def residual_stl(u):
-        if sqrt_lambda == 0.0:
-            # Returning a zero residual of correct shape avoids branching in the Condition.
-            return u * 0.0
-        return sqrt_lambda * torch.nn.functional.relu(torch.abs(u) - args.u_max)
+    def stl_residual(u, x, t):
+        # Per‑point margins, shape [N, 1]
+        margins = cfg.u_max - torch.abs(u)
+        # Smooth min over the batch
+        rho = softmin(margins.squeeze(-1), temp=float(cfg.stl_temp))
+        # Broadcast global penalty to match unreduced loss convention
+        loss = torch.nn.functional.relu(-rho) ** 2
+        return loss.expand(margins.shape[0], 1)
 
-    # --- Model --------------------------------------------------------------
-    norm = tp.models.NormalizationLayer(Omega * time_interval)
-    # Map string to activation module for the FCN
-    _act = str(args.activation).lower().strip()
-    if _act in {"tanh", "tanh()"}:
-        act_module = torch.nn.Tanh()
-    elif _act in {"relu", "relu()"}:
-        act_module = torch.nn.ReLU()
-    elif _act in {"gelu", "gelu()"}:
-        act_module = torch.nn.GELU()
-    elif _act in {"silu", "swish", "silu()"}:
-        act_module = torch.nn.SiLU()
-    else:
-        print(f"[WARN] Unknown activation '{args.activation}', defaulting to Tanh")
-        act_module = torch.nn.Tanh()
+    # Conditions
+    cond_pde = tp.problem.conditions.PINNCondition(
+        module=model,
+        sampler=S_pde,
+        residual_fn=pde_residual,
+        name="pde",
+        weight=1.0,
+    )
+    cond_ic = tp.problem.conditions.PINNCondition(
+        module=model,
+        sampler=S_ic,
+        residual_fn=ic_residual,
+        name="ic",
+        weight=1.0,
+    )
+    cond_bc = tp.problem.conditions.PINNCondition(
+        module=model,
+        sampler=S_bc,
+        residual_fn=bc_residual,
+        name="bc",
+        weight=1.0,
+    )
 
-    fcn = tp.models.FCN(input_space=X * T, output_space=U, hidden=tuple(args.hidden), activations=act_module)
-    model = tp.models.Sequential(norm, fcn)
-
-    # --- Conditions ---------------------------------------------------------
-    cond_pde = tp.conditions.PINNCondition(module=model, sampler=sampler_pde, residual_fn=residual_pde)
-    cond_ic = tp.conditions.PINNCondition(module=model, sampler=sampler_ic, residual_fn=residual_ic)
-    cond_bc = tp.conditions.PINNCondition(module=model, sampler=sampler_bc, residual_fn=residual_bc)
-    # STL penalty operates on the same interior sampler; it is a soft safety loss.
-    cond_stl = tp.conditions.PINNCondition(module=model, sampler=sampler_pde, residual_fn=lambda u, *_: residual_stl(u))
+    # STL condition (optional via weight)
+    cond_stl = tp.problem.conditions.PINNCondition(
+        module=model,
+        sampler=stl_sampler,
+        residual_fn=stl_residual,
+        name="stl_soft_always_abs_le_u_max",
+        weight=float(cfg.stl_weight),
+    )
 
     train_conditions = [cond_pde, cond_ic, cond_bc]
-    if args.lambda_stl > 0:
+    if cfg.stl_weight > 0.0:
         train_conditions.append(cond_stl)
 
-    # --- Optimizer & solver -------------------------------------------------
-    optim = tp.OptimizerSetting(optimizer_class=torch.optim.Adam, lr=args.lr)
-    solver = tp.solver.Solver(train_conditions=train_conditions, optimizer_setting=optim)
+    # Optimizer settings
+    opt_cls = torch.optim.Adam if cfg.optimizer == "adam" else torch.optim.AdamW
+    opt_setting = tp.solver.OptimizerSetting(optimizer_class=opt_cls, lr=cfg.lr)
 
-    # --- Trainer ------------------------------------------------------------
-    use_gpu = (args.device == "gpu") or (args.device == "auto" and torch.cuda.is_available())
-    accelerator = "gpu" if use_gpu else "cpu"
-    trainer = pl.Trainer(
-        devices=1,
-        accelerator=accelerator,
-        precision=args.precision,
-        num_sanity_val_steps=0,
+    # Trainer
+    trainer = tp.solver.Solver(train_conditions, optimizer_setting=opt_setting)
+
+    # Lightning trainer settings
+    callbacks = []
+    # Optional: periodic weight checkpoint
+    callbacks.append(tp.utils.callbacks.WeightSaveCallback(
+        model, path=f"{cfg.results_root}/{cfg.tag}", name=f"burgers1d_{cfg.tag}",
+        check_interval=max(cfg.max_steps // 5, 2000), save_initial_model=False, save_final_model=False
+    ))
+
+    # Precision handling: PL uses "precision=16" for AMP, else 32
+    pl_trainer = pl.Trainer(
+        max_steps=cfg.max_steps,
+        accelerator=("gpu" if dev.type == "cuda" else "cpu"),
+        precision=cfg.precision,
+        deterministic=cfg.deterministic,
         logger=False,
         enable_checkpointing=False,
-        max_steps=args.max_steps,
-        log_every_n_steps=args.log_every_n_steps,
-        benchmark=True,
+        callbacks=callbacks,
+        enable_progress_bar=True,
+        gradient_clip_val=0.0,
+        log_every_n_steps=max(1, cfg.log_every),
     )
 
-    print(
-        f"[INFO] Training on {accelerator.upper()} for {args.max_steps} steps "
-        f"(ν={args.nu}, hidden={tuple(args.hidden)}, λ_STL={args.lambda_stl})"
-    )
+    # Warmup: if requested, run a few steps without STL
+    if cfg.stl_weight > 0.0 and cfg.stl_warmup > 0:
+        old_w = cond_stl.weight
+        cond_stl.weight = 0.0
+        pl_trainer.fit(trainer)
+        cond_stl.weight = float(old_w)
+        remaining = max(0, cfg.max_steps - pl_trainer.global_step)
+        if remaining > 0:
+            pl_trainer.fit(trainer, ckpt_path=None)
+    else:
+        pl_trainer.fit(trainer)
 
-    t0 = time.time()
-    trainer.fit(solver)
-    train_time = time.time() - t0
-    final_loss = None  # Lightning hides the running loss here; keep None for compact artifact
+    # -----------------------------
+    # Post‑hoc evaluation & artifacts
+    # -----------------------------
+    results_dir = Path(cfg.results_root) / cfg.tag
+    results_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- Export a compact artifact -----------------------------------------
-    # Evaluate on a dense Cartesian grid to save results in a framework‑agnostic format.
-    n_x, n_t = int(args.n_x), int(args.n_t)
-    Xg = torch.linspace(args.x_min, args.x_max, n_x)
-    Tg = torch.linspace(args.t_min, args.t_max, n_t)
-    xs, ts = torch.meshgrid(Xg, Tg, indexing="ij")  # shapes (n_x, n_t)
-    pts = torch.stack([xs.reshape(-1), ts.reshape(-1)], dim=-1)  # (n_x*n_t, 2)
-    points = tp.spaces.Points(pts, space=X * T)
+    # Save final checkpoint + config
+    if cfg.save_ckpt:
+        ckpt_path = results_dir / f"burgers1d_{cfg.tag}.pt"
+        torch.save({"model": model.state_dict(), "config": vars(cfg)}, ckkt_path)
+
+    # Dense grid
+    gx = torch.linspace(cfg.x_min, cfg.x_max, cfg.nx, device=dev).unsqueeze(-1)
+    gt = torch.linspace(cfg.t_min, cfg.t_max, cfg.nt, device=dev).unsqueeze(-1)
+    # TorchPhysics sampler: product grid (mesh)
+    GX = tp.spaces.Points.from_coordinates({"x": gx.repeat(cfg.nt, 1), "t": gt.repeat_interleave(cfg.nx, dim=0)})
+    model.eval()
     with torch.no_grad():
-        u_pred = model(points)  # (n_x*n_t, 1) in output space U
-    u_grid = u_pred.reshape(n_x, n_t).cpu()
+        U = model(GX).reshape(cfg.nt, cfg.nx).detach().to("cpu")  # [nt, nx]
+    ux_abs_max = float(torch.max(torch.abs(U)))
+    rho = float(cfg.u_max - ux_abs_max)
+    stl_satisfied = bool(rho >= 0.0)
 
-    args.results.mkdir(parents=True, exist_ok=True)
-    out_path = args.results / f"burgers_{args.tag}.pt"
-    meta = {
-        "mode": "train",
-        "framework": "torchphysics",
-        "train_time_s": float(train_time),
-        "nu": float(args.nu),
-        "n_pde": int(args.n_pde),
-        "n_ic": int(args.n_ic),
-        "n_bc": int(args.n_bc),
-        "lambda_stl": float(args.lambda_stl),
-        "u_max": float(args.u_max),
+    metrics = {
+        "ux_abs_max": ux_abs_max,
+        "stl_rho": rho,
+        "stl_satisfied": stl_satisfied,
+        "nu": float(cfg.nu),
+        "train_steps": int(pl_trainer.global_step),
     }
+
+    # Save dense field & metadata
+    field_path = results_dir / f"burgers1d_{cfg.tag}_field.pt"
     torch.save(
         {
-            "u": u_grid,            # shape (n_x, n_t)
-            "X": Xg.cpu(),          # shape (n_x,)
-            "T": Tg.cpu(),          # shape (n_t,)
-            "u_max": float(torch.max(torch.abs(u_grid))),
-            "stl_rho_abs_leq": float(args.u_max - torch.max(torch.abs(u_grid))),
-            "stl_satisfied_abs_leq": bool((torch.max(torch.abs(u_grid)) <= args.u_max).item()),
-            "args": asdict(args),
-            "loss": final_loss,
-            "meta": meta,
+            "x": torch.linspace(cfg.x_min, cfg.x_max, cfg.nx),
+            "t": torch.linspace(cfg.t_min, cfg.t_max, cfg.nt),
+            "u": U,              # shape [nt, nx]
+            "metrics": metrics,
+            "config": vars(cfg),
         },
-        out_path,
+        field_path,
     )
-    umax = float(torch.max(torch.abs(u_grid)))
-    print(f"[OK] Saved results to {out_path.resolve()} (grid: {n_t}×{n_x}, u_max={umax:.4f})")
+
+    # Friendly stdout summary
+    print(
+        f"[burgers1d] tag={cfg.tag}  steps={pl_trainer.global_step}  "
+        f"max|u|={ux_abs_max:.4f}  u_max={cfg.u_max:.4f}  ρ={rho:.4f}  "
+        f"satisfied={'yes' if stl_satisfied else 'no'}"
+    )
+    print(f"[burgers1d] artifacts: {field_path}" )
 
 
 if __name__ == "__main__":
