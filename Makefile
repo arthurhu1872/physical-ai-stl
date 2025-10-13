@@ -275,3 +275,13 @@ dist-clean: clean ## Also remove venv, build artifacts, and results
 .PHONY: quickstart
 quickstart: venv install-all install-torch-cpu dirs env test-fast ## Create venv, install everything (CPU), smoke-test
 	@echo "✅ Quickstart complete."
+
+## —— CI parity (mirrors .github/workflows/ci.yml) ————————————————
+.PHONY: ci
+ci: ## Minimal steps used in GitHub Actions CI
+	@if [ "$(HAVE_UV)" = "1" ]; then \
+	  $(UV) pip install --python $(PY) -r requirements.txt -r requirements-dev.txt; \
+	else \
+	  $(PIP) install -r requirements.txt -r requirements-dev.txt; \
+	fi
+	@PYTHONPATH=$(PY_SRC) $(PY) -m pytest -q
