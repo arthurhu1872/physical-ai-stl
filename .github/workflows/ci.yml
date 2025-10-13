@@ -6,8 +6,6 @@ name: CI
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  schedule:
-    - cron: "0 12 * * 1"   # Mondays 12:00 UTC (weekly)
   workflow_dispatch:
 
 permissions:
