@@ -11,24 +11,6 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# 1D viscous Burgers' equation with TorchPhysics + optional STL safety term
-# ---------------------------------------------------------------------------
-# PDE:        u_t + u * u_x - nu * u_xx = 0        on (x,t) \in [x_min,x_max] x [t_min,t_max]
-# IC:         u(x, t_min) = -sin(pi * (x - x_min)/(x_max - x_min))
-# BC:         u(x_min, t) = u(x_max, t) = 0        (Dirichlet)
-# STL (opt):  G_{[t_min,t_max]} |u(x,t)| <= u_max  enforced softly on interior samples
-#
-# We use TorchPhysics Conditions + Lightning Solver and export a compact artifact
-# (grid evaluation + metadata) to results/burgers_{tag}.pt for downstream plotting.
-#
-# References:
-# - TorchPhysics API (Conditions, Domains, Models, Solver).  
-# - FCN architecture signature and NormalizationLayer.       
-# - RandomUniformSampler, Interval domains.                   
-# - STL monitoring concept via pointwise bound (soft).       (adapted from RTAMT/MoonLight ideas; see README links)
-# ---------------------------------------------------------------------------
-
 
 @dataclass
 class Args:
