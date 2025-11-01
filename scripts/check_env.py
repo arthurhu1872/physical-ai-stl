@@ -1,4 +1,36 @@
 #!/usr/bin/env python3
+"""physical-ai-stl — environment quick check
+
+Purpose
+-------
+Give a crisp, fast, and actionable summary of the local environment for the
+CS‑3860 "physical AI + STL" repo. It focuses on three physics‑ML stacks
+and three STL/STREL monitoring toolkits discussed with Prof. Johnson:
+
+  • Frameworks:    NeuroMANCER, NVIDIA PhysicsNeMo, Bosch TorchPhysics
+  • STL tooling:   RTAMT (STL), MoonLight (STREL), SpaTiaL (object‑centric specs)
+
+Design goals
+------------
+1) **Robust**: never crash; import lazily; degrade gracefully.
+2) **Fast**: no heavy computation; at most a few subprocess calls.
+3) **Actionable**: if something is missing, print the exact install hint.
+4) **Portable**: Linux/macOS/Windows/WSL; CPU‑only friendly.
+5) **Machine‑readable**: `--json` and `--md` outputs for CI/reporting.
+
+Exit code
+---------
+• 0  → all *core* items are present (Python≥3.10, NumPy).
+• 1  → some *core* items are missing (useful for CI).
+
+Usage
+-----
+  python scripts/check_env.py            # human summary
+  python scripts/check_env.py --md       # Markdown table
+  python scripts/check_env.py --json     # JSON diagnostic blob
+  python -m scripts.check_env --quick    # skip slow external probes
+
+"""
 from __future__ import annotations
 
 import argparse
