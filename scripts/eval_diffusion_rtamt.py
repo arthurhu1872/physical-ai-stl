@@ -196,7 +196,7 @@ def _reduce_spatial(U, time_axis: int, *, mode: str, p: float, q: float, temp: f
     return S.detach().to("cpu")
 
 
-def _infer_dt(T: Any | None, fallback: float | None, nt: int) -> float:  # noqa: ARG001
+def _infer_dt(T: Any | None, fallback: float | None, nt: int) -> float:
     if T is not None:
         tt = _as_tensor(T).flatten().numpy()
         if tt.size >= 2:
@@ -291,7 +291,7 @@ def _robustness_fallback(
 
 
 def _evaluate(
-    var_name: str,  # noqa: ARG001 - kept for clarity in prints when extended
+    var_name: str,
     series: Sequence[float],
     dt: float,
     *,
