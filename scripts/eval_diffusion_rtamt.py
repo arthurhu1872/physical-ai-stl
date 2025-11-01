@@ -1,39 +1,3 @@
-#!/usr/bin/env python3
-# ruff: noqa: I001
-"""
-Evaluate STL robustness with RTAMT for a saved 1‑D diffusion PINN field.
-
-This script loads a checkpoint produced by the training scripts (the artifact
-named like ``*_field.pt``), reduces the spatial dimensions to a single
-time–series, and evaluates an STL specification using RTAMT (dense or discrete
-semantics). If RTAMT is not available locally, the script falls back to an
-exact discrete‑time computation of robustness for the supported predicates.
-
-Design goals
-------------
-• **Correct**: careful axis inference (time vs. space), robust dt inference,
-  precise semantics selection, and numerically stable reductions.
-• **Practical**: graceful degradation when RTAMT is missing; portable, no
-  heavy imports at module import time; helpful error messages.
-• **Fast**: vectorized spatial reductions in PyTorch, zero‑copy where possible.
-
-Examples
---------
-  # Evaluate an upper‑bound safety spec:  u(x,t) ≤ 1  for all x, t
-  python scripts/eval_diffusion_rtamt.py \\
-      --ckpt results/diffusion1d_week2_field.pt \\
-      --spec upper --u-max 1.0 --semantics dense --agg mean
-
-  # Range constraint  0.0 ≤ u(x,t) ≤ 1.0  using a softmax spatial aggregator
-  python scripts/eval_diffusion_rtamt.py \\
-      --ckpt results/diffusion1d_week2_field.pt --spec range \\
-      --u-min 0.0 --u-max 1.0 --agg softmax --temp 0.25
-
-Outputs
--------
-• Prints a concise human summary.
-• Optionally writes a JSON blob with all details (use --json).
-"""
 from __future__ import annotations
 
 import argparse
