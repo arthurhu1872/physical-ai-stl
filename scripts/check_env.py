@@ -8,7 +8,7 @@ CS‑3860 "physical AI + STL" repo. It focuses on three physics‑ML stacks
 and three STL/STREL monitoring toolkits discussed with Prof. Johnson:
 
   • Frameworks:    NeuroMANCER, NVIDIA PhysicsNeMo, Bosch TorchPhysics
-  • STL tooling:   RTAMT (STL), MoonLight (STREL), SpaTiaL (object‑centric specs)
+  • STL tooling:   RTAMT (STL), MoonLight (STREL, requires Java≥21), SpaTiaL (object‑centric specs; needs MONA+ltlf2dfa)
 
 Design goals
 ------------
@@ -168,7 +168,7 @@ class Dependency:
     required: bool = False
     min_version: Optional[str] = None
     notes: str = ""               # short hint
-    extra_probe: Optional[Callable[[ModuleType], Mapping[str, Any]]] = None
+    extra_probe: Optional[Callable[[Optional[ModuleType]], Mapping[str, Any]]] = None
 
 @dataclass
 class ProbeResult:
@@ -207,8 +207,8 @@ def _probe(dep: Dependency, *, quick: bool = False) -> Tuple[Dependency, ProbeRe
     # min version check
     if dep.min_version and (version is not None) and not _meets(version, dep.min_version):
         message = f"needs >= {dep.min_version}; found {version}"
-    # run lightweight extra probe
-    if module is not None and dep.extra_probe is not None:
+    # run lightweight extra probe (even if module failed to import)
+    if dep.extra_probe is not None:
         try:
             if not quick:
                 extra.update(dict(dep.extra_probe(module)))
@@ -338,14 +338,14 @@ FRAMEWORKS: Tuple[Dependency, ...] = (
         import_names=("physicsnemo",),
         pip_names=("nvidia-physicsnemo",),
         min_version=None,
-        notes="NVIDIA Physics‑ML; pip install nvidia-physicsnemo.",
+        notes="NVIDIA Physics‑ML; python -m pip install nvidia-physicsnemo[all].",
     ),
     Dependency(
         display="PhysicsNeMo‑Sym",
         import_names=("physicsnemo.sym",),
         pip_names=("nvidia-physicsnemo.sym","nvidia-physicsnemo-sym"),
         min_version=None,
-        notes="Symbolic PDE utils; may require Cython; see NVIDIA docs.",
+        notes="Symbolic PDE utils; may require Cython; see NVIDIA docs; install via: python -m pip install \"Cython\" && python -m pip install nvidia-physicsnemo.sym --no-build-isolation.",
     ),
     Dependency(
         display="TorchPhysics",
@@ -370,7 +370,7 @@ STL_TOOLS: Tuple[Dependency, ...] = (
         import_names=("moonlight",),
         pip_names=("moonlight",),
         min_version=None,
-        notes="STREL monitors; requires Java ≥ 21 in PATH.",
+        notes="STREL monitors; requires Java ≥ 21 (java -version).",
         extra_probe=lambda _m: _probe_java(None),
     ),
     Dependency(
@@ -421,6 +421,17 @@ def _print_human(results: Mapping[str, Tuple[Dependency, ProbeResult]], *, ascii
     # Host information
     sys_line = f"{platform.platform()} • Python {results.get('Python', (None, ProbeResult(False, False, None, '', {})))[1].version or platform.python_version()}"
     print(c.dim + sys_line + c.reset)
+    # Detect environment manager hints (conda/venv) for user context
+    try:
+        env_mgr = []
+        if os.environ.get("CONDA_DEFAULT_ENV"):
+            env_mgr.append(f"conda:{os.environ.get('CONDA_DEFAULT_ENV')}")
+        if os.environ.get("VIRTUAL_ENV"):
+            env_mgr.append("venv")
+        if env_mgr:
+            print(c.dim + "env: " + ", ".join(env_mgr) + c.reset)
+    except Exception:
+        pass
 
     def block(title: str, names: Iterable[str]) -> None:
         print(c.blue + title + c.reset)
@@ -435,11 +446,39 @@ def _print_human(results: Mapping[str, Tuple[Dependency, ProbeResult]], *, ascii
 
     # Helpful hints for missing items
     hints: List[str] = []
+    # generic pip hints for missing imports
     for dep, res in results.values():
-        if not res.imported:
-            if dep.pip_names:
-                # prefer first pip name for hint
-                hints.append(f"pip install {dep.pip_names[0]}")
+        if not res.imported and dep.pip_names:
+            # prefer first pip name for hint
+            # use python -m pip for robustness across environments
+            hints.append(f"python -m pip install {dep.pip_names[0]}")
+    # targeted OS-specific hints for external tools
+    sysname = platform.system()
+    # MoonLight: Java 21+
+    if "MoonLight (STREL)" in results:
+        dep_ml, res_ml = results["MoonLight (STREL)"]
+        jr = res_ml.extra or {}
+        need_java = (jr.get("java") == "not found") or (jr.get("java_major") and int(jr.get("java_major")) < 21)
+        if need_java:
+            if sysname == "Darwin":
+                hints.append("brew install openjdk@21    # ensure JAVA_HOME and PATH are set.")  # see Homebrew docs
+            elif sysname == "Windows":
+                hints.append("winget install --id=Microsoft.OpenJDK.21 -e    # or: choco install temurin --version=21")  # Windows package managers
+            else:
+                hints.append("sudo apt-get update && sudo apt-get install -y openjdk-21-jre    # or openjdk-21-jdk")
+    # SpaTiaL: MONA + ltlf2dfa
+    if "SpaTiaL / spatial‑spec" in results:
+        dep_sp, res_sp = results["SpaTiaL / spatial‑spec"]
+        er = res_sp.extra or {}
+        if not er.get("mona_available", False):
+            if sysname == "Linux":
+                hints.append("sudo apt-get install -y mona    # MONA automata tool required by spatial-spec")
+            elif sysname == "Darwin":
+                hints.append("Install MONA from https://www.brics.dk/mona/ (build from source)    # Homebrew formula may not exist")
+            elif sysname == "Windows":
+                hints.append("Download mona.exe from https://www.brics.dk/mona/ and ensure it is on PATH")
+        if not er.get("ltlf2dfa_available", False):
+            hints.append("python -m pip install ltlf2dfa    # required by spatial-spec for automata conversion")
     if hints:
         print(c.magenta + "Install hints:" + c.reset)
         # de‑duplicate while preserving order
