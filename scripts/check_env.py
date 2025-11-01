@@ -64,7 +64,16 @@ def _run(cmd: List[str], timeout: float = 2.0) -> Tuple[int, str, str]:
 # ------------------------------- versions ----------------------------------
 
 def _version_of_distribution(names: Iterable[str]) -> Optional[str]:
-    """Try importlib.metadata first; fall back to module __version__ on import."""
+    """Try importlib.metadata first; fall back to module __version__ on import.
+    Special-case Python itself to report the interpreter version.
+    """
+    # Handle Python interpreter explicitly
+    lowered = tuple(n.lower() for n in names)
+    if "python" in lowered:
+        try:
+            return platform.python_version()
+        except Exception:
+            pass
     try:
         from importlib import metadata as _md  # Py3.8+
     except Exception:  # pragma: no cover
@@ -230,6 +239,28 @@ def _probe_java(_: ModuleType | None = None) -> Mapping[str, Any]:
         info["java_ok_for_moonlight"] = bool(major >= 21)
     return info
 
+
+def _probe_mona(_: ModuleType | None = None) -> Mapping[str, Any]:
+    """External probe for SpaTiaL: check MONA/ltlf2dfa availability."""
+    info: Dict[str, Any] = {}
+    mpath = _which("mona")
+    if mpath:
+        info["mona_available"] = True
+        info["mona_path"] = mpath
+        code, out, err = _run([mpath, "-v"], timeout=1.5)
+        raw = (out or err or "").strip()
+        if raw:
+            info["mona_raw"] = raw.splitlines()[0]
+    else:
+        info["mona_available"] = False
+    ltlf = _which("ltlf2dfa")
+    if ltlf:
+        info["ltlf2dfa_available"] = True
+        info["ltlf2dfa_path"] = ltlf
+    else:
+        info["ltlf2dfa_available"] = False
+    return info
+
 # ------------------------------- inventory ---------------------------------
 
 # Core: keep lean; the repo's base requirement is numpy
@@ -314,7 +345,8 @@ STL_TOOLS: Tuple[Dependency, ...] = (
         import_names=("spatial_spec",),
         pip_names=("spatial-spec",),
         min_version=None,
-        notes="Spatio‑temporal relations; pip install spatial-spec (Linux/macOS)."
+        notes="Spatio‑temporal relations; pip install spatial-spec (Linux/macOS).",
+        extra_probe=lambda _m: _probe_mona(None),
     ),
 )
 
@@ -341,7 +373,7 @@ def _render_row(dep: Dependency, res: ProbeResult, c: _Color, *, ascii_only: boo
     # extra one‑liners
     if res.extra:
         extras = []
-        for k in ("gpu_name0", "cuda_available", "mps_available", "build_cuda", "java_ok_for_moonlight"):
+        for k in ("gpu_name0", "cuda_available", "mps_available", "build_cuda", "java_ok_for_moonlight", "mona_available", "ltlf2dfa_available"):
             if k in res.extra:
                 extras.append(f"{k}={res.extra[k]}")
         if extras:
@@ -353,6 +385,10 @@ def _print_human(results: Mapping[str, Tuple[Dependency, ProbeResult]], *, ascii
     sep = c.dim + ("-" * 79) + c.reset
     print(c.bold + "physical-ai-stl • environment check" + c.reset)
     print(sep)
+    # Host information
+    sys_line = f"{platform.platform()} • Python {results.get('Python', (None, ProbeResult(False, False, None, '', {})))[1].version or platform.python_version()}"
+    print(c.dim + sys_line + c.reset)
+
     def block(title: str, names: Iterable[str]) -> None:
         print(c.blue + title + c.reset)
         for name in names:
@@ -378,6 +414,17 @@ def _print_human(results: Mapping[str, Tuple[Dependency, ProbeResult]], *, ascii
         unique = [h for h in hints if not (h in seen or seen.add(h))]
         for h in unique:
             print("  • " + h)
+
+    # Extended details
+    if extended:
+        print(sep)
+        print(c.yellow + "Details:" + c.reset)
+        for name, (dep, res) in results.items():
+            if res.extra:
+                print(f"  {dep.display}:")
+                for k, v in res.extra.items():
+                    print(f"    - {k}: {v}")
+        print(sep)
 
 def _print_markdown(results: Mapping[str, Tuple[Dependency, ProbeResult]], *, extended: bool) -> None:
     # Markdown table for README/issue pasting
@@ -423,11 +470,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Probe everything deterministically
     results: Dict[str, Tuple[Dependency, ProbeResult]] = {}
     for dep in EVERYTHING:
-        dep2 = dep
-        # adapt extra probes if --quick
-        if args.quick and dep.extra_probe in ( _probe_java, ):
-            dep2 = dataclasses.replace(dep, extra_probe=None)
-        d, r = _probe(dep2, quick=args.quick)
+        d, r = _probe(dep, quick=args.quick)
         results[dep.display] = (d, r)
 
     if args.json:
@@ -438,7 +481,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         _print_human(results, ascii_only=args.plain, extended=args.extended)
 
     # Exit 0 on all required present/importable with version OK
-    missing_core = [d.display for d in CORE if not results[d.display][1].imported]
+    missing_core = [
+        d.display
+        for d in CORE
+        if not (
+            results[d.display][1].imported and _meets(results[d.display][1].version, d.min_version)
+        )
+    ]
     return 0 if not missing_core else 1
 
 if __name__ == "__main__":  # pragma: no cover
