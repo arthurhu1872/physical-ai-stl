@@ -2,13 +2,50 @@
 # ruff: noqa: I001
 from __future__ import annotations
 
+"""
+Evaluate STL robustness for a saved diffusion PINN field.
+
+What this script does
+---------------------
+1) Loads a *_field.pt checkpoint that contains a spatio‑temporal field (e.g., `u`).
+2) Reduces spatial dimensions to a single time series via a chosen aggregator.
+3) Monitors the series against an STL specification using RTAMT (dense or discrete time).
+   - Built‑ins: global upper/lower/range bounds under the outer `always`.
+   - NEW: pass a *custom* STL formula with ``--stl`` (variable name is ``s``).
+4) Supports optional evaluation over a **time window** (``--t0/--t1`` in seconds or
+   ``--idx0/--idx1`` in indices). When no time vector is present, ``--dt`` enables
+   absolute‑time windows.
+
+Robustness semantics follow RTAMT (when installed). For the simple bound predicates
+(upper/lower/range), an exact, fast fallback is provided if RTAMT is unavailable.
+
+Examples
+--------
+Dense‑time, custom STL over 3.0s–5.0s window:
+    python scripts/eval_diffusion_rtamt.py --ckpt results/diffusion1d_week2_field.pt \\
+        --agg quantile --q 0.9 --semantics dense --dt 0.01 --t0 3.0 --t1 5.0 \\
+        --stl "always[0,1](s <= 0.8)"
+
+Discrete‑time, built‑in `always upper`:
+    python scripts/eval_diffusion_rtamt.py --ckpt results/diffusion1d_week2_field.pt \\
+        --semantics discrete --agg amax --spec upper --u-max 1.0
+
+Notes
+-----
+* STL variable name is **s** (post‑spatially‑reduced scalar). For custom specs that
+  refer to additional variables, use your own monitoring script.
+* RTAMT supports time‑bounded operators like ``always[a,b]`` and ``eventually[a,b]``
+  (syntax accepts comma/colon separators depending on version). See RTAMT docs.
+* JSON summary (``--json``) captures all inputs, the computed dt, and robustness.
+"""
+
 import argparse
 import json
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Tuple
 
 from physical_ai_stl.monitoring.rtamt_monitor import (
     evaluate_series as _rtamt_evaluate_series,
@@ -53,6 +90,31 @@ def build_argparser() -> argparse.ArgumentParser:
         default=None,
         help="Time step (if not inferable from checkpoint 'T')",
     )
+    # --- NEW: evaluation window ---
+    ap.add_argument(
+        "--t0",
+        type=float,
+        default=None,
+        help="Start time (seconds) for evaluation window; requires 'T' or --dt.",
+    )
+    ap.add_argument(
+        "--t1",
+        type=float,
+        default=None,
+        help="End time (seconds, inclusive) for evaluation window; requires 'T' or --dt.",
+    )
+    ap.add_argument(
+        "--idx0",
+        type=int,
+        default=None,
+        help="Start index for evaluation window (Python slicing semantics).",
+    )
+    ap.add_argument(
+        "--idx1",
+        type=int,
+        default=None,
+        help="End index (exclusive) for evaluation window (Python slicing semantics).",
+    )
     ap.add_argument(
         "--agg",
         type=str,
@@ -78,6 +140,7 @@ def build_argparser() -> argparse.ArgumentParser:
         default=0.1,
         help="temperature for --agg softmax (higher≈harder max)",
     )
+    # --- STL preset vs custom ---
     ap.add_argument(
         "--spec",
         type=str,
@@ -86,18 +149,27 @@ def build_argparser() -> argparse.ArgumentParser:
         help="Which STL predicate to enforce under the outer 'always'",
     )
     ap.add_argument(
+        "--stl",
+        type=str,
+        default=None,
+        help=(
+            "Custom RTAMT STL formula over variable 's', e.g. "
+            "\"always[0,5](s <= 0.8)\". Overrides --spec."
+        ),
+    )
+    ap.add_argument(
         "--u-max",
         dest="u_max",
         type=float,
         default=None,
-        help="Upper bound for 'upper'/'range'",
+        help="Upper bound for 'upper'/'range' (ignored if --stl is given)",
     )
     ap.add_argument(
         "--u-min",
         dest="u_min",
         type=float,
         default=None,
-        help="Lower bound for 'lower'/'range'",
+        help="Lower bound for 'lower'/'range' (ignored if --stl is given)",
     )
     ap.add_argument(
         "--json",
@@ -105,6 +177,13 @@ def build_argparser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Optional path to write a JSON summary",
+    )
+    ap.add_argument(
+        "--dump-series",
+        dest="dump_series",
+        type=str,
+        default=None,
+        help="Optional path to write the reduced series as CSV with columns t,s",
     )
     ap.add_argument(
         "-v",
@@ -262,6 +341,30 @@ def _build_spec(
         return None
 
 
+def _build_custom_spec(formula: str, semantics: str):
+    """Build a custom RTAMT spec over variable 's' from a raw STL formula string."""
+    try:
+        import rtamt  # type: ignore
+        SpecCls = (
+            getattr(rtamt, "StlDenseTimeSpecification", None)
+            or getattr(rtamt, "StlDenseTimeOfflineSpecification", None)
+            if semantics == "dense"
+            else None
+        )
+        if SpecCls is None:
+            SpecCls = rtamt.StlDiscreteTimeSpecification
+        spec = SpecCls()
+        spec.declare_var("s", "float")
+        spec.spec = str(formula)
+        spec.parse()
+        return spec
+    except Exception as e:
+        raise SystemExit(
+            "[fatal] --stl requires RTAMT to be installed and the formula to be valid.\n"
+            f"Reason: {e}"
+        )
+
+
 def _robustness_fallback(
     series: Iterable[float],
     *,
@@ -301,8 +404,19 @@ def _evaluate(
     semantics: str,
     u_min: float | None,
     u_max: float | None,
+    custom_formula: str | None = None,
 ) -> tuple[float, bool, str]:
-    # Try RTAMT first
+    # If user passed a custom formula, we must use RTAMT
+    if custom_formula:
+        spec = _build_custom_spec(custom_formula, semantics)
+        rob = float(_rtamt_evaluate_series(spec, var="s", series=series, dt=float(dt)))
+        try:
+            sat = bool(_rtamt_satisfied(rob))
+        except Exception:
+            sat = bool(rob >= 0.0)
+        return rob, sat, "rtamt"
+
+    # Try RTAMT first for presets
     spec = _build_spec("s", spec_kind, u_min, u_max, semantics)
     if spec is not None:
         rob = float(_rtamt_evaluate_series(spec, var="s", series=series, dt=float(dt)))
@@ -317,6 +431,68 @@ def _evaluate(
     return rob, sat, "fallback"
 
 
+def _slice_by_time_and_index(
+    series: Sequence[float],
+    T: Any | None,
+    dt: float | None,
+    t0: float | None,
+    t1: float | None,
+    idx0: int | None,
+    idx1: int | None,
+) -> tuple[list[float], list[float]]:
+    """Return (series_sliced, tvec_sliced). If neither time nor index window is given,
+    returns the input series and an inferred time vector.
+
+    * If T is None, dt must be provided to build a synthetic time vector starting at 0.
+    * t1 is treated as inclusive.
+    * Index slicing uses Python semantics [idx0:idx1].
+    """
+    import numpy as np
+
+    s = np.asarray(series, dtype=float).reshape(-1)
+    nt = int(s.size)
+
+    # Build a time vector
+    if T is not None:
+        tt = _as_tensor(T).flatten().numpy().astype(float)
+        if tt.size != nt:
+            # Best effort: trim to min length
+            m = int(min(tt.size, nt))
+            tt = tt[:m]
+            s = s[:m]
+            nt = m
+    else:
+        if dt is None:
+            raise SystemExit("[fatal] No time vector in checkpoint. Provide --dt for time windows.")
+        tt = (np.arange(nt, dtype=float) * float(dt))
+
+    # Time window
+    if (t0 is not None) or (t1 is not None):
+        lo = float(t0) if t0 is not None else float(tt[0])
+        hi = float(t1) if t1 is not None else float(tt[-1])
+        if hi < lo:
+            raise SystemExit(f"[fatal] --t1 ({hi}) < --t0 ({lo})")
+        mask = (tt >= lo) & (tt <= hi)
+        if not mask.any():
+            raise SystemExit("[fatal] Empty slice after applying --t0/--t1 window")
+        tt = tt[mask]
+        s = s[mask]
+        nt = int(s.size)
+
+    # Index window
+    if (idx0 is not None) or (idx1 is not None):
+        i0 = int(idx0) if idx0 is not None else 0
+        i1 = int(idx1) if idx1 is not None else nt
+        if i1 < i0:
+            raise SystemExit(f"[fatal] --idx1 ({i1}) < --idx0 ({i0})")
+        sl = slice(i0, i1, None)
+        tt = tt[sl]
+        s = s[sl]
+        nt = int(s.size)
+
+    return s.astype(float).tolist(), tt.astype(float).tolist()
+
+
 # -----------------------------------------------------------------------------
 # Main
 # -----------------------------------------------------------------------------
@@ -328,14 +504,20 @@ class Args:
     var: str
     semantics: str          # 'dense' or 'discrete'
     dt: float | None
+    t0: float | None
+    t1: float | None
+    idx0: int | None
+    idx1: int | None
     agg: str                # spatial reducer
     p: float                # lp norm (for --agg lp)
     q: float                # quantile (for --agg quantile)
     temp: float             # temperature (for --agg softmax)
     spec: str               # 'upper' | 'lower' | 'range'
+    stl: str | None
     u_max: float | None
     u_min: float | None
     json_out: str | None
+    dump_series: str | None
     verbose: bool
 
 
@@ -363,7 +545,7 @@ def main() -> None:
             break
 
     # Determine which axis is time and reduce spatially to a single series
-    time_axis, nt = _infer_time_axis(U, T)
+    time_axis, nt0 = _infer_time_axis(U, T)
     series_tensor = _reduce_spatial(
         U,
         time_axis=time_axis,
@@ -373,12 +555,18 @@ def main() -> None:
         temp=float(args.temp),
     )
     # Coerce to a plain list[float] for the monitor
-    series: list[float] = [float(x) for x in series_tensor.flatten().tolist()]
-    if len(series) != nt:  # sanity
-        nt = len(series)
+    full_series: list[float] = [float(x) for x in series_tensor.flatten().tolist()]
+    if len(full_series) != nt0:  # sanity
+        nt0 = len(full_series)
 
-    # Infer dt
-    dt = _infer_dt(T, args.dt, nt)
+    # Infer dt (from full series) — used for windows and for dense-time semantics
+    dt = _infer_dt(T, args.dt, nt0)
+
+    # Apply optional evaluation window(s)
+    series, tvec = _slice_by_time_and_index(
+        full_series, T, dt, args.t0, args.t1, args.idx0, args.idx1
+    )
+    nt = len(series)
 
     # Evaluate robustness
     rob, sat, backend = _evaluate(
@@ -389,6 +577,7 @@ def main() -> None:
         semantics=str(args.semantics).lower(),
         u_min=args.u_min,
         u_max=args.u_max,
+        custom_formula=args.stl,
     )
 
     # Pretty print
@@ -396,7 +585,7 @@ def main() -> None:
         import numpy as np
         Ushape = tuple(int(s) for s in _as_tensor(U).shape)
         print(f"[info] ckpt={ckpt_path}")
-        print(f"[info] var={args.var!r} shape={Ushape}  time_axis={time_axis}  nt={nt}")
+        print(f"[info] var={args.var!r} shape={Ushape}  time_axis={time_axis}  nt_full={nt0}  nt_eval={nt}")
         print(f"[info] semantics={args.semantics}  dt={dt:.6g}  backend={backend}")
         print(
             f"[info] agg={args.agg}"
@@ -409,9 +598,26 @@ def main() -> None:
             f"[info] series stats: min={arr.min():.6g}  max={arr.max():.6g}  "
             f"mean={arr.mean():.6g}  std={arr.std():.6g}"
         )
+        if (args.t0 is not None) or (args.t1 is not None) or (args.idx0 is not None) or (args.idx1 is not None):
+            t0v = tvec[0] if tvec else float('nan')
+            t1v = tvec[-1] if tvec else float('nan')
+            print(f"[info] window: t∈[{t0v:.6g}, {t1v:.6g}]  idx∈[{args.idx0 if args.idx0 is not None else 0}:{args.idx1 if args.idx1 is not None else nt0}]")
 
     status = "SAT" if sat else "UNSAT"
     print(f"Robustness = {rob:.6g}   [{status}]   (backend={backend})")
+
+    # Optional outputs
+    if args.dump_series:
+        outp = Path(args.dump_series)
+        outp.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with outp.open("w", encoding="utf-8") as f:
+                f.write("t,s\n")
+                for t, v in zip(tvec, series):
+                    f.write(f"{float(t):.9g},{float(v):.9g}\n")
+            print(f"[saved] reduced series → {outp}")
+        except Exception as e:
+            print(f"[warn] Failed to save --dump-series to {outp}: {e}", file=sys.stderr)
 
     # Optional JSON summary
     if args.json_out:
@@ -420,7 +626,8 @@ def main() -> None:
             "var": args.var,
             "shape": tuple(int(s) for s in _as_tensor(U).shape),
             "time_axis": int(time_axis),
-            "nt": nt,
+            "nt_full": nt0,
+            "nt_eval": nt,
             "dt": float(dt),
             "semantics": str(args.semantics),
             "agg": {
@@ -429,8 +636,15 @@ def main() -> None:
                 "q": float(args.q),
                 "temp": float(args.temp),
             },
+            "window": {
+                "t0": None if args.t0 is None else float(args.t0),
+                "t1": None if args.t1 is None else float(args.t1),
+                "idx0": None if args.idx0 is None else int(args.idx0),
+                "idx1": None if args.idx1 is None else int(args.idx1),
+            },
             "spec": {
-                "kind": str(args.spec),
+                "kind": ("custom" if args.stl else str(args.spec)),
+                "formula": None if not args.stl else str(args.stl),
                 "u_min": None if args.u_min is None else float(args.u_min),
                 "u_max": None if args.u_max is None else float(args.u_max),
             },
