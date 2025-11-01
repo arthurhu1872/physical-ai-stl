@@ -70,8 +70,7 @@ except Exception:  # pragma: no cover
     _helper_monitor_graph_time_series = None  # type: ignore[assignment]
     _helper_set_domain = None  # type: ignore[assignment]
 
-# ---------------------------------------------------------------------------
-
+# -------------------------------------------
 # Location of the demo .mls script within the repository.
 _MLS_RELATIVE = ("scripts", "specs", "contain_hotspot.mls")
 
@@ -190,7 +189,7 @@ def _monitor_graph_time_series(mon: Any, graph: Any, sig: Any) -> Any:
             # Fall back to the 4‑argument API described in the official wiki.
             # Wrap a static graph into a one‑element sequence and build signal times.
             # If the user already passed a sequence of graphs, honor it.
-            graph_seq = graph if (isinstance(graph, list) and graph and isinstance(graph[0], list) and isinstance(graph[0][0], list)) else [graph]
+            graph_seq = graph if (isinstance(graph, list) and isinstance(graph[0], list) and isinstance(graph[0][0], list)) else [graph]
             # Signal is a list over time; use integer ticks 0..T-1.
             try:
                 T = len(sig)
@@ -240,13 +239,13 @@ def strel_hello() -> np.ndarray:
       to ``float`` for easy inspection and downstream use.
     """
     # If the optional dependency isn't present, fail fast with a clear error.
-    if _helper_load_script_from_file is None:
-        raise RuntimeError("MoonLight not available; install with `pip install moonlight`.")
+    if load_script_from_file is None:
+        raise RuntimeError("MoonLight is not available; skipping STREL example.")
 
     # Load the STREL script (from file if available; otherwise use inline fallback).
     spec_path = _resolve_spec_file()
     if spec_path is not None:
-        mls = _helper_load_script_from_file(str(spec_path))  # type: ignore[arg-type]
+        mls = load_script_from_file(str(spec_path))  # type: ignore[arg-type]
     else:  # pragma: no cover - rare when packaging w/o scripts/
         # Fall back to compiling the in‑memory script.
         from moonlight import ScriptLoader  # type: ignore
