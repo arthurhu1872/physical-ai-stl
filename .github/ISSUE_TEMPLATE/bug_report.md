@@ -129,7 +129,7 @@ python -m <module.or.script> --config <path>  # and flags used
 - Python: _<e.g., 3.11.7>_
 - PyTorch: _<e.g., 2.4.x>_  | CUDA Toolkit / Driver: _<e.g., 12.4 / 555.xx>_  | cuDNN: _<e.g., 9.x>_
 - GPUs: _<model & count>_  | CPU: _<model>_  | RAM: _<GB>_
-- Java (if used): _<e.g., OpenJDK 21.x>_ | `JAVA_HOME` set? _<yes/no>_
+- Java (if used): _<OpenJDK 21.x>_  | `JAVA_HOME` set? _<yes/no>_
 - Key libraries (exact versions or commits):
   - Neuromancer: _<ver / commit>_
   - PhysicsNeMo: _<ver / commit>_
