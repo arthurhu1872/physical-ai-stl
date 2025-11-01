@@ -121,7 +121,7 @@ python -m <module.or.script> --config <path>  # and flags used
 ```
 
 ## 6) Environment & Versions **Required**
-> Exact versions are critical for reproducibility (and for CI parity).
+> Exact versions are critical for reproducibility (and CI parity).
 
 - Repo commit: `git rev-parse HEAD` = `<hash>`
 - Install method(s): _conda/pip/source_ (exact commands)
@@ -139,7 +139,7 @@ python -m <module.or.script> --config <path>  # and flags used
   - SpaTiaL: _<ver>_
   - Others: _<names & versions>_
 - Reproducibility: seed(s) used = _<int>_; determinism flags set? _<yes/no>_  
-  - If **yes**, list flags (e.g., `torch.use_deterministic_algorithms`, `cudnn.deterministic`, environment variables like `CUBLAS_WORKSPACE_CONFIG`, `OMP_NUM_THREADS`, `MKL_NUM_THREADS`).
+  - If **yes**, list flags (e.g., `torch.use_deterministic_algorithms`, `CUBLAS_WORKSPACE_CONFIG`, `OMP_NUM_THREADS`, `MKL_NUM_THREADS`).
 
 ## 7) Logs / Stack Traces / Artifacts
 Paste the most relevant lines. Attach files if needed (plots, traces, CSVs, screenshots).
