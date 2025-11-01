@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
@@ -18,7 +19,7 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
 def _supports_color(stream) -> bool:
     try:
-        import curses
+        import curses  # noqa: F401
         return stream.isatty()
     except Exception:
         return False
