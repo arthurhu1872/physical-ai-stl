@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
 def _supports_color(stream) -> bool:
     try:
-        import curses  # noqa: F401
+        import curses
         return stream.isatty()
     except Exception:
         return False
