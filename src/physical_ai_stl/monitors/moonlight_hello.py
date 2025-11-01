@@ -9,7 +9,15 @@ import numpy as np
 
 # Keep the demo script small and explicit; terminate statements with semicolons
 # to match the Script Syntax documented upstream.
+# We define a tiny temporal script with two real-valued signals (x, y) and a single
+# formula named `future` that states: "eventually within the next 0.4 time units,
+# x is *strictly less* than y".  Using a bounded window keeps the example robust
+# on short traces and matches the MoonLight wiki syntax.
 _SCRIPT: str = (
+    "signal { real x; real y; }\n"
+    "domain boolean;\n"
+    "formula cmp = (x < y);\n"
+    "formula future = eventually[0, 0.4](cmp);\n"
 )
 
 
@@ -41,6 +49,14 @@ def _monitor_with_best_effort(
 
 
 def temporal_hello() -> np.ndarray:
+    """Run a minimal MoonLight temporal monitor over a tiny toy signal.
+
+    Returns
+    -------
+    numpy.ndarray
+        An array of shape (N, 2) with columns [time, boolean_value] under the
+        Boolean semantics (1.0 for true, 0.0 for false).
+    """
     # Import lazily so the rest of the project can be installed/tested without Java.
     try:
         from moonlight import ScriptLoader  # type: ignore
