@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+# Ensure the in-repo package is importable without installing the wheel.
+import pathlib
+import sys
+
+_ROOT = pathlib.Path(__file__).resolve().parents[1]
+_SRC = _ROOT / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
 import math
 from typing import Iterable
 
 import numpy as np
 import pytest
 
-from physical_ai_stl.datasets import SyntheticSTLNetDataset
+from physical_ai_stl.datasets import BoundedAtomicSpec, SyntheticSTLNetDataset
 
 # Tight but robust absolute tolerance for exact landmark checks.
 EPS = 1e-12
@@ -168,3 +177,56 @@ def test_invalid_lengths_raise() -> None:
         _ = SyntheticSTLNetDataset(length=-1, noise=0.0)
     with pytest.raises((ValueError, TypeError)):
         _ = SyntheticSTLNetDataset(length=3.7, noise=0.0)  # type: ignore[arg-type]
+
+
+def test_invalid_noise_raises() -> None:
+    with pytest.raises(ValueError):
+        _ = SyntheticSTLNetDataset(length=8, noise=-1.0)
+
+
+def test_rng_parameter_reproducibility_for_generator_and_randomstate() -> None:
+    L = 10
+    # Generator
+    g1 = np.random.default_rng(123)
+    g2 = np.random.default_rng(123)
+    d1 = SyntheticSTLNetDataset(length=L, noise=0.5, rng=g1)
+    d2 = SyntheticSTLNetDataset(length=L, noise=0.5, rng=g2)
+    assert [d1[i] for i in range(L)] == [d2[i] for i in range(L)]
+
+    # RandomState
+    r1 = np.random.RandomState(12345)
+    r2 = np.random.RandomState(12345)
+    e1 = SyntheticSTLNetDataset(length=L, noise=0.5, rng=r1)
+    e2 = SyntheticSTLNetDataset(length=L, noise=0.5, rng=r2)
+    assert [e1[i] for i in range(L)] == [e2[i] for i in range(L)]
+
+
+def test_rng_type_validation() -> None:
+    class BadRNG:
+        pass
+
+    with pytest.raises(TypeError):
+        _ = SyntheticSTLNetDataset(length=8, noise=0.1, rng=BadRNG())  # type: ignore[arg-type]
+
+
+def test_windows_and_robustness_shape_and_values() -> None:
+    # Small, hand-checkable example.
+    n = 9
+    win = 5
+    stride = 2
+    ds = SyntheticSTLNetDataset(length=n, noise=0.0)
+    # Windows of length 5 with stride 2.
+    t_win, v_win = ds.windows(length=win, stride=stride)
+    # There are n - win + 1 windows before striding; slicing [::stride] keeps 0,2,4 -> 3 windows.
+    assert t_win.shape[1] == win and v_win.shape[1] == win
+    assert t_win.shape == v_win.shape == (3, win)  # 5 raw windows, keep 0,2,4 -> 3
+    assert np.issubdtype(t_win.dtype, np.floating) and np.issubdtype(v_win.dtype, np.floating)
+
+    # Simple spec: always v <= 1 over horizon H=4 samples (window length=5).
+    spec = BoundedAtomicSpec(temporal="always", op="<=", threshold=1.0, horizon=4)
+    # Convenience wrapper pairs windows and robustness with matching stride.
+    t2, v2, rho = ds.windowed_robustness(spec, stride=stride)
+    # Matching shapes and equality to the direct window computation.
+    assert np.allclose(t2, t_win) and np.allclose(v2, v_win)
+    # With clean sine wave in [0,1], robustness to v<=1 should be >= 0.
+    assert np.all(rho >= -EPS)
