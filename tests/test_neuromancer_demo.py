@@ -51,6 +51,9 @@ def test_source_exists_and_mentions_api() -> None:
     # Light-weight sanity checks on public API names in the text
     assert "DemoConfig" in text
     assert "train_demo" in text
+    # Helpful to have STL helpers documented/exported
+    assert "stl_offline_robustness" in text
+    assert "stl_violation" in text
 
 
 def test_import_and_tiny_run_smoke() -> None:
@@ -59,9 +62,11 @@ def test_import_and_tiny_run_smoke() -> None:
         _readable_skip("import failed (syntax or dependency error)")
         return
 
-    if not hasattr(mod, "DemoConfig") or not hasattr(mod, "train_demo"):
-        _readable_skip("expected symbols not defined")
-        return
+    # Required symbols
+    for sym in ("DemoConfig", "train_demo"):
+        if not hasattr(mod, sym):
+            _readable_skip(f"expected symbol not defined: {sym}")
+            return
 
     DemoConfig = getattr(mod, "DemoConfig")
     train_demo = getattr(mod, "train_demo")
@@ -161,3 +166,46 @@ def test_reproducibility_best_effort() -> None:
     mse2 = float(out2["pytorch"]["final_mse"])
     assert math.isfinite(mse1) and math.isfinite(mse2)
     assert abs(mse1 - mse2) <= max(1e-7, 1e-3 * (1.0 + abs(mse1)))
+
+
+def test_stl_semantics_and_monotonicity() -> None:
+    """Check STL helpers (exact robustness and pointwise violation)."""
+    mod = _try_import_demo()
+    if mod is None:
+        _readable_skip("import failed (syntax or dependency error)")
+        return
+
+    stl_offline_robustness = getattr(mod, "stl_offline_robustness", None)
+    stl_violation = getattr(mod, "stl_violation", None)
+    if stl_offline_robustness is None or stl_violation is None:
+        _readable_skip("STL helper functions not exposed")
+        return
+
+    try:
+        import torch  # type: ignore
+    except Exception:
+        _readable_skip("PyTorch unavailable")
+        return
+
+    # Tiny synthetic signal and a bound that creates both safe and unsafe points.
+    u = torch.tensor([-0.2, 0.1, 0.9, 0.0], dtype=torch.float32)
+    bound = 0.8
+
+    # Exact semantics: rho = min_t (bound - u[t])
+    rho = stl_offline_robustness(u, bound)
+    assert math.isfinite(rho)
+    assert abs(rho - float((bound - u).min().item())) <= 1e-12 * (1.0 + abs(rho))
+
+    # Pointwise violation equals ReLU(u - bound) elementwise
+    v = stl_violation(u, bound)
+    assert torch.allclose(v, torch.relu(u - bound))
+
+    # Consistency: -rho equals the maximum (unclipped) violation
+    # (i.e., max_t(u - bound), clipped-at-zero version has the same max).
+    max_unclipped = float((u - bound).max().item())
+    assert abs(-rho - max_unclipped) <= 1e-7 * (1.0 + abs(max_unclipped))
+
+    # Monotonicity in the threshold: lowering the bound cannot increase robustness.
+    rho_hi = stl_offline_robustness(u, bound + 0.1)
+    rho_lo = stl_offline_robustness(u, bound - 0.1)
+    assert rho_lo <= rho_hi + 1e-12
