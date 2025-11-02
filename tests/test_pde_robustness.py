@@ -8,6 +8,10 @@ import pytest
 from physical_ai_stl import pde_example as pe
 
 
+# Global numeric tolerance for comparisons
+TOL = 1e-12
+
+
 # ----------------------------- 1D robustness ---------------------------------
 def test_compute_robustness_typical_case() -> None:
     sig = np.array([0.2, 0.4, 0.6])
@@ -31,6 +35,18 @@ def test_compute_robustness_boundaries_and_out_of_range(
 ) -> None:
     rob = pe.compute_robustness(np.array(sig, dtype=float), lower, upper)
     assert np.isclose(rob, expected)
+
+
+def test_compute_robustness_matches_definition_random() -> None:
+    # Randomized spot-checks against the literal definition
+    rng = np.random.default_rng(7)
+    for _ in range(5):
+        n = int(rng.integers(low=1, high=12))
+        sig = rng.normal(size=n)
+        lo, hi = np.sort(rng.uniform(-1.0, 1.0, size=2))
+        expected = np.minimum(sig - lo, hi - sig).min().item()
+        got = pe.compute_robustness(sig, lo, hi)
+        assert got == pytest.approx(expected, abs=TOL)
 
 
 def test_compute_robustness_order_invariant() -> None:
@@ -72,6 +88,35 @@ def test_compute_robustness_monotonic_in_bounds() -> None:
     assert wider >= base - 1e-12
 
 
+def test_compute_robustness_no_mutation_and_dtype_agnostic() -> None:
+    sig_f = np.array([0.2, 0.4, 0.6], dtype=float)
+    sig_i = np.array([0, 1, 2], dtype=int)  # integer inputs should be accepted
+    sig_copy = sig_f.copy()
+    r1 = pe.compute_robustness(sig_f, 0.0, 1.0)
+    r2 = pe.compute_robustness(sig_i, 0, 3)  # map to same spacing
+    assert np.array_equal(sig_f, sig_copy)  # input preserved
+    # Explicit formula for the second case: min(min(sig)-lower, upper - max(sig))
+    expected = min(sig_i.min() - 0, 3 - sig_i.max())
+    assert r2 == pytest.approx(expected, abs=TOL)
+    assert isinstance(r1, float) and isinstance(r2, float)
+
+
+def test_compute_robustness_one_sided_bounds() -> None:
+    sig = np.array([-1.0, 0.0, 1.0])
+    # Upper-only constraint: robustness is upper - max(sig)
+    r_upper_only = pe.compute_robustness(sig, lower=-np.inf, upper=1.0)
+    assert r_upper_only == pytest.approx(1.0 - sig.max(), abs=TOL)
+    # Lower-only constraint: robustness is min(sig) - lower
+    r_lower_only = pe.compute_robustness(sig, lower=-1.0, upper=np.inf)
+    assert r_lower_only == pytest.approx(sig.min() - (-1.0), abs=TOL)
+
+
+def test_compute_robustness_propagates_nan() -> None:
+    sig = np.array([0.0, np.nan, 1.0])
+    r = pe.compute_robustness(sig, lower=0.0, upper=1.0)
+    assert np.isnan(r)
+
+
 @pytest.mark.parametrize(
     "bad",
     [
@@ -110,6 +155,25 @@ def test_compute_spatiotemporal_typical_and_constant_cases() -> None:
     assert np.isclose(
         pe.compute_spatiotemporal_robustness(const, 0.0, 1.0), 0.5
     )
+
+
+def test_spatiotemporal_transpose_invariance_and_no_mutation() -> None:
+    rng = np.random.default_rng(11)
+    mat = rng.normal(size=(3, 5))
+    lo, hi = -0.5, 0.75
+    mat_copy = mat.copy()
+    r = pe.compute_spatiotemporal_robustness(mat, lo, hi)
+    r_T = pe.compute_spatiotemporal_robustness(mat.T, lo, hi)
+    assert r == pytest.approx(r_T, abs=TOL)
+    assert np.array_equal(mat, mat_copy)
+
+
+def test_spatiotemporal_degenerate_interval() -> None:
+    mat = np.array([[0.2, 0.3, 0.6],
+                    [0.1, 0.4, 0.9]], dtype=float)
+    r = pe.compute_spatiotemporal_robustness(mat, lower=0.3, upper=0.3)
+    # elementwise margins -> min([-0.1, 0.0, -0.3, -0.2, 0.1, -0.6]) = -0.6
+    assert r == pytest.approx(-0.6, abs=TOL)
 
 
 @pytest.mark.parametrize(
