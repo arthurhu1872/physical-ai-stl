@@ -84,6 +84,19 @@ def test_length3_first_step_is_uniform_equal_to_alpha_dt() -> None:
     assert np.allclose(u[1], np.full(3, alpha * dt), atol=TOL)
 
 
+def test_simulate_diffusion_emits_runtime_warning_when_unstable() -> None:
+    # r = alpha * dt / dx^2; choose r > 0.5 to trigger the warning
+    with pytest.warns(RuntimeWarning):
+        u = simulate_diffusion(length=5, steps=1, dt=1.1, alpha=0.6)  # r=0.66
+        assert u.shape == (2, 5)
+
+
+def test_simulate_diffusion_respects_dtype_override() -> None:
+    u = simulate_diffusion(length=4, steps=2, dt=0.1, alpha=0.1, dtype=np.float32)
+    assert u.dtype == np.float32
+    assert np.isfinite(u).all()
+
+
 # ---------------------------------------------------------------------------
 # Simulator with per‑step clipping
 # ---------------------------------------------------------------------------
@@ -111,7 +124,8 @@ def test_per_step_clipping_never_worsens_robustness() -> None:
     )
     clip_rob = compute_spatiotemporal_robustness(u_clip, lower=0.0, upper=0.5)
     assert clip_rob >= base_rob - TOL
-    assert clip_rob >= -TOL  # clipped signal is always within bounds, so robustness is non‑negative
+    # clipped signal is always within bounds, so robustness is non‑negative
+    assert clip_rob >= -TOL
 
 
 # ---------------------------------------------------------------------------
