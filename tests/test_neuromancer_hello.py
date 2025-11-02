@@ -3,26 +3,42 @@
 # Goals: correctness, speed, and environment independence.
 from __future__ import annotations
 
+import builtins
 import importlib
 import importlib.util
 import inspect
+import pathlib
 import sys
 import types
-import builtins
+
 import pytest
+
+# Make the in-repo package importable without installation.
+_ROOT = pathlib.Path(__file__).resolve().parents[1]
+_SRC = _ROOT / "src"
+if _SRC.is_dir() and str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
 HELPER_MOD = "physical_ai_stl.frameworks.neuromancer_hello"
 
 
 def _import_helper_or_skip(monkeypatch: pytest.MonkeyPatch):
+    """
+    Import the neuromancer helper freshly. If it is not available in this
+    checkout, skip the tests quickly (optional dependency).
+    """
     # Ensure a clean import of the helper itself
     monkeypatch.delitem(sys.modules, HELPER_MOD, raising=False)
+    spec = importlib.util.find_spec(HELPER_MOD)
+    if spec is None:
+        pytest.skip("Neuromancer helper module missing")
     try:
-        mod = importlib.import_module(HELPER_MOD)
+        return importlib.import_module(HELPER_MOD)
     except Exception:
-        pytest.skip("Neuromancer helper missing")
+        # If the helper exists but cannot import in this environment,
+        # treat this as optional and skip rather than failing CI.
+        pytest.skip("Neuromancer helper present but not importable in this environment")
         raise  # for type checkers
-    return mod
 
 
 def test_helper_import_is_lazy(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -39,14 +55,19 @@ def test_helper_import_is_lazy(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_version_is_string_if_neuromancer_present(monkeypatch: pytest.MonkeyPatch) -> None:
     helper = _import_helper_or_skip(monkeypatch)
 
-    if importlib.util.find_spec("neuromancer") is None:
+    # Skip gracefully if neuromancer is not actually importable in this env.
+    spec = importlib.util.find_spec("neuromancer")
+    if spec is None:
         pytest.skip("Neuromancer not installed in this environment")
+    try:
+        nm = importlib.import_module("neuromancer")
+    except Exception:
+        pytest.skip("Neuromancer installed but failed to import in this environment")
 
     v = helper.neuromancer_version()
     assert isinstance(v, str)
     assert v.strip() != ""
     # Cross-check with the installed package's own version attribute, if present.
-    nm = importlib.import_module("neuromancer")
     expected = getattr(nm, "__version__", "unknown")
     assert v == expected
     # Also ensure it *looks* like a version when not 'unknown'.
@@ -71,7 +92,8 @@ def test_raises_importerror_when_neuromancer_missing(monkeypatch: pytest.MonkeyP
     real_import = builtins.__import__
 
     def fake_import(name, *args, **kwargs):  # type: ignore[override]
-        if name == "neuromancer":
+        # Block both top-level and submodule imports.
+        if name.split(".", 1)[0] == "neuromancer":
             raise ModuleNotFoundError("No module named 'neuromancer'")
         return real_import(name, *args, **kwargs)
 
