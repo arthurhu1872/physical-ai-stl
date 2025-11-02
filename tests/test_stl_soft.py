@@ -246,23 +246,24 @@ def test_stlpenalty_behavior_and_margin_shift():
         assert torch.allclose(g, torch.zeros_like(z))
 
     # Margin acts as a shift: at robustness == margin, softplus(0) = log(2)
-    p = stl.STLPenalty(weight=1.0, margin=1.0)
+    # Use beta=1.0 so softplus(0)/beta = log(2)
+    p = stl.STLPenalty(weight=1.0, margin=1.0, beta=1.0)
     val_at_margin = p(torch.tensor([1.0], dtype=torch.float64))
     assert abs(val_at_margin.item() - math.log(2.0)) < 1e-6
 
 
 def test_stlpenalty_mean_reduction_and_grad_sign():
     # The module uses mean() reduction and multiplies by weight.
-    w, m = 3.5, -0.25
-    penalty = stl.STLPenalty(weight=w, margin=m)
+    w, m, b = 3.5, -0.25, 7.0
+    penalty = stl.STLPenalty(weight=w, margin=m, beta=b)
     r = torch.tensor([-1.0, 0.0, 2.0], dtype=torch.float64, requires_grad=True)
     out = penalty(r)
-    # Expected: w * mean(softplus(m - r_i))
-    expected = w * torch.nn.functional.softplus(m - r).mean()
+    # Expected: w * mean( softplus(b * (m - r_i)) / b )
+    expected = w * (torch.nn.functional.softplus(b * (m - r)) / b).mean()
     assert torch.allclose(out, expected, atol=1e-12)
 
     # Gradients should be negative (increasing robustness lowers penalty):
-    # d/dr softplus(m - r) = -sigmoid(m - r)
+    # d/dr softplus(b*(m - r))/b = -sigmoid(b*(m - r))
     (g,) = torch.autograd.grad(out, r, retain_graph=False)
     assert torch.all(g <= 0.0 + 1e-12)
     # And magnitude bounded by w / N (since |sigmoid|<=1 and mean over N)
