@@ -14,8 +14,7 @@ torch = pytest.importorskip("torch")
 # Support running tests from a source checkout without installation
 try:  # pragma: no cover - import convenience
     from physical_ai_stl.monitoring import stl_soft as stl  # type: ignore
-except Exception:
-    # Fallback: add src/ to sys.path
+except Exception:  # pragma: no cover - import convenience
     ROOT = pathlib.Path(__file__).resolve().parents[1]
     SRC = ROOT / "src"
     if SRC.exists():
@@ -77,14 +76,27 @@ def test_softmin_softmax_dtype_and_device(fn):
         assert y.dtype == x.dtype and y.device == x.device
         assert y.shape == () or y.shape == torch.Size([])
         # Must be connected to the graph
-        (gx,) = torch.autograd.grad(y, x, retain_graph=False)
-        assert gx is not None
-        # Temperature check: for very low T the outputs approach hard min/max
-        y2 = fn(x, temp=0.01, dim=-1)
-        assert y2.item() != y.item()
+        (g,) = torch.autograd.grad(y, x, retain_graph=False, allow_unused=False)
+        assert g is not None and torch.isfinite(g).all()
 
 
-def test_softmin_softmax_gradients_and_probabilities():
+def test_softmin_softmax_bounds_and_singleton():
+    x = torch.tensor([0.2, 0.8, 0.5], dtype=torch.float32)
+    # With a small temperature they should be tight lower/upper bounds
+    sm = stl.softmin(x, temp=0.05)
+    sM = stl.softmax(x, temp=0.05)
+    assert sm.item() <= x.min().item() + 1e-6
+    assert sM.item() >= x.max().item() - 1e-6
+
+    # Singletons act as identity for any temperature
+    y = torch.tensor([0.42], dtype=torch.float32)
+    for t in (1e-3, 0.1, 1.0):
+        assert torch.allclose(stl.softmin(y, temp=t), y, atol=1e-8)
+        assert torch.allclose(stl.softmax(y, temp=t), y, atol=1e-8)
+
+
+def test_softmin_softmax_gradients_are_soft_weights():
+    # For f(x) = T * logsumexp(x/T), ∂f/∂x = softmax(x/T)
     # For g(x) = -T * logsumexp(-x/T), ∂g/∂x = softmin_weights(x/T)
     x = torch.tensor([0.0, 1.0, 2.0], dtype=torch.float64, requires_grad=True)
     T = 0.25
@@ -117,13 +129,25 @@ def test_softmin_softmax_temperature_sharpness():
     assert abs(sM_min.item() - hard_max.item()) <= abs(sM_mid.item() - hard_max.item()) + 1e-12
 
 
-def test_temporal_ops_reduce_over_last_dim_by_default():
-    # If time_dim is omitted, reduce over the last dimension
-    margins = torch.tensor([[0.3, -1.2, 0.5],
-                            [0.0,  0.1, 0.2]], dtype=torch.float32)
-    # Expected: G = softmin over last dim; F = softmax over last dim
-    G = stl.always(margins, temp=0.05)
-    F = stl.eventually(margins, temp=0.05)
+def test_numerical_stability_small_temperature():
+    # Large dynamic range should not cause inf/nan thanks to log-sum-exp
+    x = torch.linspace(-50.0, 50.0, steps=101, dtype=torch.float32)
+    for fn in (stl.softmin, stl.softmax):
+        y = fn(x, temp=1e-3)
+        assert torch.isfinite(y).all(), "Output contains inf/nan for very small temperature"
+
+
+# ---------------------------------------------------------------------------
+# Temporal operators
+# ---------------------------------------------------------------------------
+def test_temporal_always_eventually_reduce_over_time_dim():
+    # margins shape: (batch, time)
+    margins = torch.tensor([[ 0.0,  1.0, -1.0,  2.0],
+                            [-2.0, -0.5,  0.5,  3.0]], dtype=torch.float32)
+    # Default time_dim = -1
+    G = stl.always(margins, temp=0.05)      # approx min over time
+    F = stl.eventually(margins, temp=0.05)  # approx max over time
+    assert G.shape == (2,) and F.shape == (2,)
     # They should bound the true min/max
     true_min = margins.min(dim=-1).values
     true_max = margins.max(dim=-1).values
@@ -154,8 +178,28 @@ def test_always_eventually_match_softmin_softmax_on_dim():
     F = stl.eventually(x, temp=0.1, time_dim=1)
     G_ref = stl.softmin(x, temp=0.1, dim=1)
     F_ref = stl.softmax(x, temp=0.1, dim=1)
-    assert torch.allclose(G, G_ref, atol=1e-8)
-    assert torch.allclose(F, F_ref, atol=1e-8)
+    assert torch.allclose(G, G_ref, atol=1e-12)
+    assert torch.allclose(F, F_ref, atol=1e-12)
+    assert G.shape == (B, D) and F.shape == (B, D)
+
+
+def test_temporal_gradients_sum_to_one_over_time():
+    # Gradients of the log-sum-exp smoothed temporal ops should be soft weights
+    x = torch.tensor([[ -1.0,  0.0,  2.0, -0.5,  1.0 ]], dtype=torch.float64, requires_grad=True)  # (1,T)
+    Ttemp = 0.2
+
+    # Eventually ~ softmax over time (dim=-1)
+    F = stl.eventually(x, temp=Ttemp)  # shape (1,)
+    (gF,) = torch.autograd.grad(F, x, retain_graph=True)
+    # gF is (1,T) of non-negative weights that sum to 1 along time
+    assert torch.all(gF >= 0) and torch.all(gF <= 1)
+    assert torch.allclose(gF.sum(dim=-1), torch.ones_like(F), atol=1e-12)
+
+    # Always ~ softmin over time (dim=-1)
+    G = stl.always(x, temp=Ttemp)
+    (gG,) = torch.autograd.grad(G, x, retain_graph=False)
+    assert torch.all(gG >= 0) and torch.all(gG <= 1)
+    assert torch.allclose(gG.sum(dim=-1), torch.ones_like(G), atol=1e-12)
 
 
 def test_temporal_ops_handle_noncontiguous_tensors():
@@ -178,7 +222,7 @@ def test_temporal_ops_handle_noncontiguous_tensors():
 # ---------------------------------------------------------------------------
 def test_stlpenalty_behavior_and_margin_shift():
     # For large positive robustness, penalty ~ 0; for large negative, penalty grows.
-    penalty = stl.STLPenalty(weight=1.0, margin=0.0, reduction="none")
+    penalty = stl.STLPenalty(weight=1.0, margin=0.0)
     high = torch.tensor([10.0], dtype=torch.float64, requires_grad=True)
     low  = torch.tensor([-10.0], dtype=torch.float64, requires_grad=True)
     v_high = penalty(high)
@@ -186,8 +230,29 @@ def test_stlpenalty_behavior_and_margin_shift():
     assert v_high.item() < 1e-6
     assert v_low.item()  > 1.0
 
+    # Monotonic decreasing in robustness
+    r = torch.tensor([-2.0, -1.0, 0.0, 1.0], dtype=torch.float64)
+    vals = penalty(r)
+    assert torch.all(vals[:-1] >= vals[1:])
 
-def test_stlpenalty_default_reduction_and_weight_margin_beta():
+    # Weight = 0 short-circuits to 0 and blocks gradients
+    penalty_zero = stl.STLPenalty(weight=0.0, margin=0.0)
+    z = torch.tensor([-1.0, 1.0], dtype=torch.float64, requires_grad=True)
+    out = penalty_zero(z)
+    assert float(out) == 0.0
+    (g,) = torch.autograd.grad(out, z, retain_graph=False, allow_unused=True)
+    # grad can be None if path is fully blocked; treat that as zero
+    if g is not None:
+        assert torch.allclose(g, torch.zeros_like(z))
+
+    # Margin acts as a shift: at robustness == margin, softplus(0) = log(2)
+    # Use beta=1.0 so softplus(0)/beta = log(2)
+    p = stl.STLPenalty(weight=1.0, margin=1.0, beta=1.0)
+    val_at_margin = p(torch.tensor([1.0], dtype=torch.float64))
+    assert abs(val_at_margin.item() - math.log(2.0)) < 1e-6
+
+
+def test_stlpenalty_mean_reduction_and_grad_sign():
     # The module uses mean() reduction and multiplies by weight.
     w, m, b = 3.5, -0.25, 7.0
     penalty = stl.STLPenalty(weight=w, margin=m, beta=b)
