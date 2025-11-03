@@ -43,19 +43,19 @@
 
 ## 3) Problem formulation
 - **Signals.**  
-  - **ODE/PDE state**: \(u(x,t)\in\mathbb{R}^m\) on spatial lattice \(\Omega\subset\mathbb{R}^d\) and time grid \([0,T]\).  
-  - **Observables**: scalars or vector fields extracted from \(u\) (e.g., temperature, velocity magnitude).  
+  - **ODE/PDE state**: $u(x,t)\in\mathbb{R}^m$ on spatial lattice $\Omega\subset\mathbb{R}^d$ and time grid $[0,T]$.  
+  - **Observables**: scalars or vector fields extracted from $u$ (e.g., temperature, velocity magnitude).  
 - **Specifications.**  
   - **STL (temporal only)** examples:  
-    - **Safety bound:** \(\mathbf G_{[0,T]}(u \le U_{\mathrm{safe}})\).  
-    - **Response time:** \(\mathbf F_{[0,\tau]}\,\mathbf G_{[0,T]}(u \le U_{\mathrm{safe}})\).  
-  - **STREL (spatio‑temporal)** examples on grid graph \(G=(V,E)\):  
-    - **Containment:** “hotspot stays within radius \(r\)” using **reach/escape**;  
-    - **No‑leak**: high‑value region never reaches boundary nodes within \([0,\tau]\).  
-- **Robustness.** Quantitative robustness \(\rho(\varphi, w, t)\) used as a scalar monitor; we aggregate over space/time.  
+    - **Safety bound:** $\mathbf{G}_{[0,T]}(u \le U_{\mathrm{safe}})$.  
+    - **Response time:** $\mathbf{F}_{[0,\tau]}\,\mathbf{G}_{[0,T]}(u \le U_{\mathrm{safe}})$.  
+  - **STREL (spatio‑temporal)** examples on grid graph $G=(V,E)$:  
+    - **Containment:** “hotspot stays within radius $r$” using **reach/escape**;  
+    - **No‑leak**: high‑value region never reaches boundary nodes within $[0,\tau]$.  
+- **Robustness.** Quantitative robustness $\rho(\varphi, w, t)$ used as a scalar monitor; we aggregate over space/time.  
 - **Use in ML.**  
   - **Monitor‑only**: compute robustness at eval and report violations.  
-  - **Loss shaping (soft enforcement)**: add penalty \(\mathcal{L}_{\mathrm{STL}} = \mathrm{softAgg}(\rho)\) with **smooth min/max** to enable backprop.
+  - **Loss shaping (soft enforcement)**: add penalty $\mathcal{L}_{\mathrm{STL}} = \mathrm{softAgg}(\rho)$ with **smooth min/max** to enable backprop.
 
 ---
 
@@ -80,7 +80,7 @@
 ### 5.1 Tasks / datasets (STL‑ready)
 | Tier | Task | Why | Spec ideas (examples) | Primary framework(s) |
 |---|---|---|---|---|
-| **T1** | **1D diffusion** (synthetic) | Deterministic, seconds‑fast | \(\mathbf G(u\le U_{\rm safe})\); response‑time cooling | PyTorch (+soft STL), Neuromancer |
+| **T1** | **1D diffusion** (synthetic) | Deterministic, seconds‑fast | $\mathbf{G}(u\le U_{\mathrm{safe}})$; response‑time cooling | PyTorch (+soft STL), Neuromancer |
 | **T1** | **2D heat** (synthetic grid) | Natural **STREL** demo | **Containment** of hotspot; **no‑leak to boundary** | PyTorch (+MoonLight), TorchPhysics |
 | **T2** | **Burgers/Advection** (*PDEBench* mini) | Standard PDE operators | amplitude bounds; front speed limits | PhysicsNeMo, TorchPhysics |
 | **T2** | **Air quality** (multi‑site) | Real spatio‑temporal signals | “PM2.5 stays below threshold; violations short‑lived” | Neuromancer (+RTAMT) |
