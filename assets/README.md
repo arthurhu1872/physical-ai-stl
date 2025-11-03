@@ -97,7 +97,7 @@ pip install rtamt
 python scripts/eval_diffusion_rtamt.py   --ckpt results/diffusion1d_week2_field.pt   --spec upper --u-max 0.8   --agg mean --temp 0.1
 ```
 
-RTAMT provides offline and online monitors for STL with quantitative robustness semantics and an optimized C++ backend for discrete‑time online monitoring. 
+RTAMT provides offline and online monitors for STL with quantitative robustness semantics and an optimized C++ backend for discrete‑time online monitoring.
 
 
 ---
