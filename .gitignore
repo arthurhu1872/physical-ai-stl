@@ -4,21 +4,26 @@
 #          accidental commits of large data, experiment artifacts, secrets,
 #          or local editor/system files.
 # ===================================================================
-
+#
+# House rules:
+#   • Never ignore source/config: keep src/**, scripts/**, configs/**, tests/**, docs/** (except build outputs).
+#   • Commit only *small* sample assets; all generated artifacts stay out of git.
+#   • Secrets live only in .env / key stores; examples are kept as *.env.example.
+#
 ########################
 # 1) Python essentials #
 ########################
-
 # Byte-compiled / cache
 __pycache__/
 *.py[cod]
 *$py.class
-
 # Compiled extensions
 *.so
+*.pyd
+*.dylib
 cython_debug/
 
-# Test & coverage caches
+# Test, type, and tooling caches
 .pytest_cache/
 .coverage
 .coverage.*
@@ -33,6 +38,8 @@ htmlcov/
 .ruff_cache/
 .pytype/
 .pylint.d/
+.pyright/
+.benchmarks/
 
 # Packaging / build artifacts
 build/
@@ -53,11 +60,12 @@ share/python-wheels/
 *.egg
 MANIFEST
 pip-wheel-metadata/
+*.manifest
+*.spec
 
 #####################################
 # 2) Environments & configuration   #
 #####################################
-
 # Virtual environments
 .venv/
 venv/
@@ -66,7 +74,7 @@ ENV/
 __pypackages__/
 .conda/
 condaenv.*/
-.python-version    # pyenv
+.python-version
 
 # dotenv/direnv secrets (keep examples only)
 .env
@@ -95,35 +103,38 @@ credentials.json
 token.json
 client_secret*.json
 
-###########################################
-# 3) Project outputs (experiments/results) #
-###########################################
-
-# Top‑level experiment/data/artifact dirs
+#########################################################
+# 3) Experiments, results, models, logs (project-level) #
+#########################################################
+# Primary outputs used across repo scripts
 /results/
 /figs/
 /figures/
 /logs/
 /outputs/
-/multirun/        # Hydra
-/runs/            # TensorBoard
+
+# Common trackers & trainers
+/multirun/
+/runs/
 /wandb/
-/mlruns/          # MLflow
+/mlruns/
 /lightning_logs/
 /tensorboard/
 /ray_results/
 /artifacts/
 /checkpoints/
-/models/          # model weights/ckpts only
-/data/
-/datasets/
+/models/
 
-# Keep lightweight readme markers in data trees
-!/data/README*
-!/data/*/README*
-!/datasets/README*
+# Other experiment tools (kept light)
+/aim/
+/.aim/
+/dvclive/
+/.neptune/
+# Neptune sometimes writes a single file:
+neptune.log
+/.cometml/
 
-# Scratch & temp
+# Scratch, temp, and job outputs
 /tmp/
 tmp/
 temp/
@@ -133,11 +144,49 @@ caches/
 scratch/
 slurm-*.out
 nohup.out
+*.pid
+
+############################################
+# 4) Data & asset trees (keep README stubs)#
+############################################
+/data/
+/datasets/
+/assets/
+/images/
+/frames/
+
+# Keep lightweight readme markers in data/asset trees
+!/data/README*
+!/data/*/README*
+!/datasets/README*
+!/datasets/*/README*
+!/assets/README*
+!/assets/*/README*
+
+#####################################################
+# 5) Framework & dependency caches (avoid bloat)    #
+#####################################################
+# PyTorch / Torch hub & compile caches
+torch_extensions/
+torch_compile_debug/
+# System caches are usually outside repo; ignore if created locally
+.cache/
+.cgu-cache/
+*.nv_fatbin
+
+# Hugging Face / Hub caches (if any end up local)
+.huggingface/
+.hf_cache/
+transformers_cache/
+
+# Java/JNI tool noise (MoonLight et al.)
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
 
 ###########################
-# 4) OS / editor metadata #
+# 6) OS / editor metadata #
 ###########################
-
 # macOS / Windows
 .DS_Store
 .DS_Store?
@@ -160,13 +209,12 @@ Desktop.ini
 .vim/
 *.sw?
 *~
-\#*\#          # Emacs backup files
-.\#*            # Emacs lock files
+\#*\#
+.\#*
 
 #################################
-# 5) Docs & notebook generators #
+# 7) Docs & notebook generators #
 #################################
-
 # Sphinx / MkDocs outputs
 docs/_build/
 site/
@@ -187,19 +235,10 @@ docs/report/**/*.log
 docs/report/**/*.out
 docs/report/**/*.synctex.gz
 docs/report/**/texput.log
+
 # Pip logs (occasionally created on error)
 pip-delete-this-directory.txt
 pip-log.txt
 
-# PyInstaller
-*.manifest
-*.spec
-
-# Type checker caches
-.pyright/
-
-# Benchmarks
-.benchmarks/
-
-# Keep nested dataset readmes too
+# Keep nested dataset readmes too (redundant safety)
 !/datasets/*/README*
