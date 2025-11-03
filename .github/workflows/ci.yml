@@ -62,9 +62,7 @@ jobs:
   lint:
     name: Lint (pre-commit) — Python 3.12
     needs: [preflight]
-    if: |
-      (needs.preflight.outputs.code == 'true' || needs.preflight.outputs.workflows == 'true') &&
-      hashFiles('.pre-commit-config.yaml') != ''
+    if: ${{ (needs.preflight.outputs.code == 'true' || needs.preflight.outputs.workflows == 'true') && hashFiles('.pre-commit-config.yaml') != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -78,13 +76,12 @@ jobs:
 
       - name: Run pre-commit
         uses: pre-commit/action@v3.0.1
-        # Action caches hook environments automatically
+        # The action caches hook environments automatically
 
   unit:
     name: Tests (unit / minimal deps) — Python ${{ matrix.python-version }}
     needs: [preflight]
-    if: |
-      needs.preflight.outputs.code == 'true' || github.event_name == 'schedule'
+    if: ${{ needs.preflight.outputs.code == 'true' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -125,9 +122,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          # Upgrade build tooling
           uv pip install --system --upgrade pip wheel setuptools
-          # Install deps; fall back to pip only if uv fails (rare)
           uv pip install --system -r requirements.txt -r requirements-dev.txt || \
             pip install -r requirements.txt -r requirements-dev.txt
 
@@ -154,10 +149,9 @@ jobs:
           verbose: true
 
   extras:
-    name: Tests (optional deps: Torch/RTAMT/MoonLight/SpaTiaL/frameworks)
+    name: "Tests (optional deps: Torch/RTAMT/MoonLight/SpaTiaL/frameworks)"
     needs: [preflight]
-    if: |
-      needs.preflight.outputs.code == 'true' || github.event_name == 'schedule'
+    if: ${{ needs.preflight.outputs.code == 'true' || github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
