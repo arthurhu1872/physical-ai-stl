@@ -47,8 +47,8 @@
   - **Observables**: scalars or vector fields extracted from $u$ (e.g., temperature, velocity magnitude).  
 - **Specifications.**  
   - **STL (temporal only)** examples:  
-    + **Safety bound:** $\mathbf{G}_{[0,T]}(u \le U_{\mathrm{safe}})$.  
-    + **Response time:** $\mathbf{F}_{[0,\tau]}\,\mathbf{G}_{[0,T]}(u \le U_{\mathrm{safe}})$.  
+    - **Safety bound:** $\mathbf{G}_{[0,T]}(u \le U_{\mathrm{safe}})$.  
+    - **Response time:** $\mathbf{F}_{[0,\tau]}\,\mathbf{G}_{[0,T]}(u \le U_{\mathrm{safe}})$.  
   - **STREL (spatio‑temporal)** examples on grid graph $G=(V,E)$:  
     - **Containment:** “hotspot stays within radius $r$” using **reach/escape**;  
     - **No‑leak**: high‑value region never reaches boundary nodes within $[0,\tau]$.  
