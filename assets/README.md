@@ -44,11 +44,10 @@ You can customize physics and numerics:
 
 - **Boundary conditions:** `--bc {periodic,neumann,dirichlet}` (Dirichlet value via `--dirichlet-value`).
 - **Integrator:** `--method {ftcs,fft}`. `fft` is unconditionally stable but requires periodic BC.
-- **Time step:** set `--dt` manually, or let the script pick a stable step with `--auto-dt` (with `--target-dt` and `--safety`).
+- **Time step:** set `--dt` manually, or let the script pick a stable step with `--auto-dt`.
 - **Initial condition:** `--init {gaussian,two_gaussians,ring,checker}`, width via `--sigma`, amplitude via `--amplitude`, noise via `--noise`.
 - **Packing & dtype:** add `--also-pack` to save a single tensor (`--layout {xy_t,t_xy}`); choose storage `--dtype` (e.g., `float16` to halve disk use).
 - **Reproducibility:** `--seed` controls the random initial condition.
-- **I/O thinning:** `--save-every K` keeps every K‑th frame to reduce disk writes.
 
 Examples:
 
@@ -71,21 +70,22 @@ Once you have a tiny sequence, you can sanity‑check it against a spatio‑temp
 
 ### A. Spatio‑temporal monitoring with MoonLight (STREL)
 
-MoonLight exposes STREL in Python (requires a recent Java runtime). Install the Python wrapper and ensure Java **21+** is on your PATH:
+MoonLight exposes STREL in Python (requires a recent Java runtime) and supports spatial operators (“surround”, “reach”, etc.). Install the Python wrapper:
 
 ```bash
 pip install moonlight
-# Ensure: java -version  →  21.x
+# MoonLight requires Java 21+ on your system PATH.
+# On macOS with Homebrew: brew install openjdk@21 && sudo ln -sfn $(/usr/libexec/java_home -v 21)/libexec/openjdk.jdk /Library/Java/JavaVirtualMachines/openjdk-21.jdk
 ```
 
 Evaluate the provided STREL spec (`scripts/specs/contain_hotspot.mls`) on the packed field:
 
 ```bash
 # First generate a packed tensor (see --also-pack above), then:
-python scripts/eval_heat2d_moonlight.py   --field assets/heat2d_scalar/field_xy_t.npy   --mls   scripts/specs/contain_hotspot.mls   --formula contain
+python scripts/eval_heat2d_moonlight.py   --field assets/heat2d_scalar/field_xy_t.npy   --mls   scripts/specs/contain_hotspot.mls   --formula contain_hotspot
 ```
 
-This prints the robustness over time and a pass/fail summary for the named formula.
+This prints the robustness over time and a pass/fail summary for the named formula.  *(MoonLight project & STREL details:)* 
 
 
 ### B. Temporal monitoring with RTAMT (STL)
@@ -94,10 +94,10 @@ For 1‑D diffusion demos (e.g., bounding a scalar state over a horizon), use th
 
 ```bash
 pip install rtamt
-python scripts/eval_diffusion_rtamt.py   --ckpt results/diffusion1d_week2_field.pt   --spec upper --u-max 0.8   --agg mean --semantics dense --dt 0.1
+python scripts/eval_diffusion_rtamt.py   --ckpt results/diffusion1d_week2_field.pt   --spec upper --u-max 0.8   --agg mean --temp 0.1
 ```
 
-RTAMT provides offline and online monitors for STL with quantitative robustness semantics and an optimized C++ backend for discrete‑time online monitoring.
+RTAMT provides offline and online monitors for STL with quantitative robustness semantics and an optimized C++ backend for discrete‑time online monitoring. 
 
 
 ---
@@ -124,28 +124,29 @@ RTAMT provides offline and online monitors for STL with quantitative robustness 
 
 ## References & context (for this project’s scope)
 
-- **Neuromancer (physics‑based ML)** — PyTorch library for modeling, optimization, and control; useful for neural ODE/PDE baselines we may pair with monitoring.
-- **MoonLight (STREL)** — spatio‑temporal monitoring with spatial operators; Python package `moonlight` and Java **21+** runtime required.
-- **RTAMT (STL)** — real‑time monitoring library with offline/online robustness semantics; Python package `rtamt`.
-- **PhysicsNeMo** (NVIDIA) and **TorchPhysics** (Bosch) — complementary physics‑ML frameworks we are surveying for PDE models/datasets.
-- **STLnet (NeurIPS’20)** — example of enforcing temporal‑logic properties in learning; inspiration for logic‑aware training objectives.
-- **NNV 2.0 (CAV’23)** — broader verification context (neural ODEs, NN controllers).
+- **Neuromancer (SciML / physics‑based ML)** — PyTorch library for modeling, optimization, and control with physics‑informed components. Useful for neural ODE/PDE baselines that we may pair with monitoring. 
+- **MoonLight (STREL)** — spatio‑temporal monitoring with spatial operators; Python package `moonlight` and Java 21+ runtime required. 
+- **RTAMT (STL)** — real‑time monitoring library with offline/online robustness semantics; Python package `rtamt`. 
+- **PhysicsNeMo** (NVIDIA) and **TorchPhysics** (Bosch) — complementary physics‑ML frameworks we are surveying for PDE models/datasets. 
+- **STLnet (NeurIPS’20)** — example of enforcing temporal‑logic properties in learning; inspiration for logic‑aware training objectives. 
+- **NNV 2.0 (CAV’23)** — broader verification context (neural ODEs, NN controllers). 
+
+If you need a public PDE dataset to try larger‑scale experiments locally (not committed here), consider **PDEBench** or framework examples in PhysicsNeMo/TorchPhysics docs. 
 
 
 ---
 
 ## Troubleshooting
 
-- **MoonLight not found / Java errors.** Ensure `pip install moonlight` succeeded and Java **21+** is on your PATH.
+- **MoonLight not found / Java errors.** Ensure `pip install moonlight` succeeded and Java 21+ is on your PATH. 
 - **Unstable time stepping with `ftcs`.** Use `--auto-dt` or switch to `--method fft` with `--bc periodic` (unconditionally stable).
 - **Robustness flips at thresholds.** Avoid converting `.npy` to images before monitoring; stay in floating‑point space.
 - **Repo getting large.** Prefer packed tensors with `float16` and sub‑sampled time; never commit long runs.
-
 
 ---
 
 ## Attributions & licenses
 
-- MoonLight is Apache‑licensed; see its repo for details.
-- RTAMT is BSD‑3‑Clause; see its repo.
-- PhysicsNeMo and TorchPhysics are Apache‑licensed; see their repos/docs.
+- MoonLight is Apache‑licensed; see its repo for details. 
+- RTAMT is BSD‑3‑Clause; see its repo. 
+- PhysicsNeMo and TorchPhysics are Apache‑licensed; see their repos/docs. 
