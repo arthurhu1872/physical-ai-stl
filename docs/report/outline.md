@@ -43,15 +43,15 @@
 
 ## 3) Problem formulation
 - **Signals.**  
-  - **ODE/PDE state**: \(u(x,t)\in\mathbb{R}^m\) on spatial lattice \(\Omega\subset\mathbb{R}^d\) and time grid \([0,T]\).  
+  - **ODE/PDE state**: \(u(x,t)\in\mathbb{R}^m\) on spatial lattice \(\Omega\subset\mathbb{R}^d\) and time grid \(\left[0,T\right]\).  
   - **Observables**: scalars or vector fields extracted from \(u\) (e.g., temperature, velocity magnitude).  
 - **Specifications.**  
   - **STL (temporal only)** examples:  
-    - **Safety bound:** \(\mathbf G_{\left[0,T\right]}(u \le U_{\mathrm{safe}})\).  
-    - **Response time:** \(\mathbf F_{\left[0,\tau\right]}\,\mathbf G_{\left[0,T\right]}(u \le U_{\mathrm{safe}})\).  
+    - **Safety bound:** \(\mathbf{G}_{\left[0,T\right]}\big(u \le U_{\mathrm{safe}}\big)\).  
+    - **Response time:** \(\mathbf{F}_{\left[0,\tau\right]}\,\mathbf{G}_{\left[0,T\right]}\big(u \le U_{\mathrm{safe}}\big)\).  
   - **STREL (spatio‑temporal)** examples on grid graph \(G=(V,E)\):  
     - **Containment:** “hotspot stays within radius \(r\)” using **reach/escape**;  
-    - **No‑leak**: high‑value region never reaches boundary nodes within \([0,\tau]\).  
+    - **No‑leak**: high‑value region never reaches boundary nodes within \(\left[0,\tau\right]\).  
 - **Robustness.** Quantitative robustness \(\rho(\varphi, w, t)\) used as a scalar monitor; we aggregate over space/time.  
 - **Use in ML.**  
   - **Monitor‑only**: compute robustness at eval and report violations.  
@@ -80,17 +80,17 @@
 ### 5.1 Tasks / datasets (STL‑ready)
 | Tier | Task | Why | Spec ideas (examples) | Primary framework(s) |
 |---|---|---|---|---|
-| **T1** | **1D diffusion** (synthetic) | Deterministic, seconds‑fast | \(\mathbf G(u\le U_{\mathrm{safe}})\); response‑time cooling | PyTorch (+soft STL), Neuromancer |
+| **T1** | **1D diffusion** (synthetic) | Deterministic, seconds‑fast | \(\mathbf{G}(u\le U_{\mathrm{safe}})\); response‑time cooling | PyTorch (+soft STL), Neuromancer |
 | **T1** | **2D heat** (synthetic grid) | Natural **STREL** demo | **Containment** of hotspot; **no‑leak to boundary** | PyTorch (+MoonLight), TorchPhysics |
 | **T2** | **Burgers/Advection** (*PDEBench* mini) | Standard PDE operators | amplitude bounds; front speed limits | PhysicsNeMo, TorchPhysics |
 | **T2** | **Air quality** (multi‑site) | Real spatio‑temporal signals | “PM2.5 stays below threshold; violations short‑lived” | Neuromancer (+RTAMT) |
-| **Stretch** | **Traffic (METR‑LA/PEMS‑BAY)** | Graph‑temporal | “No corridor exceeds speed drop for >τ” | Neural operators (PhysicsNeMo/TorchPhysics) |
+| **Stretch** | **Traffic (METR‑LA/PEMS‑BAY)** | Graph‑temporal | “No corridor exceeds speed drop for \(>\tau\)” | Neural operators (PhysicsNeMo/TorchPhysics) |
 
 *(See details in* [`docs/dataset_recommendations.md`](../dataset_recommendations.md) *and* PDEBench refs.)*
 
 ### 5.2 Models & baselines
 - **Baselines:** plain data loss (MSE/PDE residual) with no STL;  
-- **STL‑loss variants:** softmin temperature τ, spatial aggregation (mean vs softmax), monitor frequency;  
+- **STL‑loss variants:** softmin temperature \(\tau\), spatial aggregation (mean vs softmax), monitor frequency;  
 - **Framework ablation:** Neuromancer vs PhysicsNeMo vs TorchPhysics on the same T1/T2 tasks.
 
 ### 5.3 Metrics
