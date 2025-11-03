@@ -5,7 +5,11 @@
 #       and experiment outputs while keeping exactly what the Dockerfile
 #       needs to run tests and examples.
 # ===================================================================
-
+#
+# References:
+# - Docker build best practices & .dockerignore semantics: docs.docker.com
+# - Patterns are gitignore-like; '!' negates; '**' matches across dirs.
+#
 ###########################
 # 1) VCS / editors / OS   #
 ###########################
@@ -13,18 +17,23 @@
 .github
 .gitattributes
 .gitmodules
+.git-*
+*.swp
+*.swo
 .DS_Store
 Thumbs.db
-.idea
-.vscode
-.history
+.idea/
+.vscode/
+.history/
+*.code-workspace
 
 ####################################
 # 2) Python caches / build output  #
 ####################################
-__pycache__/
-*.py[cod]
-*$py.class
+**/__pycache__/
+**/*.py[cod]
+**/*$py.class
+*.egg
 *.egg-info/
 .eggs/
 build/
@@ -72,6 +81,9 @@ site-packages/
 *.keystore
 *.credentials
 *.secrets*
+ssh_keys/
+id_rsa*
+id_ed25519*
 
 #########################################
 # 5) Data / artifacts / experiment I/O  #
@@ -99,6 +111,8 @@ tb_logs/
 reports/
 paper/
 manuscript/
+notebooks/
+examples/
 
 # Large file types commonly produced by ML/experiments
 *.np[yz]
@@ -125,7 +139,7 @@ manuscript/
 *.tar
 
 #########################################
-# 6) Notebooks caches                   #
+# 6) Notebook caches                    #
 #########################################
 **/.ipynb_checkpoints/
 
@@ -134,20 +148,26 @@ manuscript/
 #########################################
 docs/_build/
 site/
+build-docs/
+book/_build/
 
 #############################################################
 # 8) SAFETY KEEPERS — required by Dockerfile and workflows  #
 #    These negations ensure we never prune critical inputs. #
 #############################################################
 !Dockerfile
+!.dockerignore
 !pyproject.toml
 !requirements.txt
 !requirements-dev.txt
 !requirements-extra.txt
 !README.md
 !CITATION.cff
+!LICENSE
 !Makefile
 !src/**
 !scripts/**
 !configs/**
 !tests/**
+
+# End of file
