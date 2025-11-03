@@ -9,27 +9,27 @@
 ## 🔎 Goals (what this repo is for)
 
 1. **Evaluate 3 physics‑ML frameworks** on small PDE/ODE demos:
-   - **Neuromancer** (PyTorch SciML; constrained optimization / PINNs / DPC)  
+   - **Neuromancer** (PyTorch SciML; constrained optimization / PINNs / DPC)
    - **NVIDIA PhysicsNeMo** (ex‑Modulus; neural operators, PINNs; GPU‑optimized but has CPU‑only paths)
    - **Bosch TorchPhysics** (mesh‑free PINNs/DeepRitz/DeepONets/FNO)
 2. **Wire up STL/STREL monitoring**:
-   - **RTAMT** for STL (offline/online robustness; bounded‑future online)
-   - **MoonLight** for **STREL** (spatio‑temporal reach/escape operators; Java engine with Python wrapper)
+   - **RTAMT** for STL (offline **and** online robustness; online supports bounded‑future)
+   - **MoonLight** for **STREL** (spatio‑temporal reach/escape operators; Java engine + Python wrapper)
    - **SpaTiaL** for object‑centric spatio‑temporal specs and simple planning/monitoring
 3. **Prototype soft/differentiable STL penalties** to *nudge* models to satisfy specs (no hard guarantees).
 4. **Recommend 2–3 problem spaces/datasets** (STL‑friendly) and document integration points.
 5. **Produce an end‑of‑semester report** with methodology, results, and recommendations.
 
-> **Weekly cadence per CS‑3860**: ~**6–9 hrs/week** for **3 credits** (≈2–3 hours per credit) and **group meeting Fridays 11:00** (Zoom/in‑person per lab announcement). *One paged living plan + a final report are the required deliverables.*
+> **Weekly cadence per CS‑3860**: ~**6–9 hrs/week** for **3 credits** (≈2–3 hours per credit) and **group meeting Fridays 11:00** (Zoom/in‑person per lab announcement). *One‑page living plan + a final report are the required deliverables.*
 
 ---
 
 ## 🚀 Quickstart (CPU‑only, lean & fast)
 
-Requirements: **Python ≥ 3.10**, macOS/Linux/WSL (Windows works; SpaTiaL is Linux/macOS only).
+Requirements: **Python ≥ 3.10**, macOS/Linux/WSL (Windows works; SpaTiaL’s automaton‑based planner is Linux/macOS only).
 
 ```bash
-# 1) Create venv and install minimal runtime + dev test deps (tiny, <30 MB)
+# 1) Create venv and install minimal runtime + dev test deps (tiny install)
 python -m venv .venv && source .venv/bin/activate  # on Windows: .venv\Scripts\activate
 python -m pip install -r requirements.txt -r requirements-dev.txt
 
@@ -65,7 +65,7 @@ src/physical_ai_stl/
   frameworks/         # tiny “hello” demos for Neuromancer / PhysicsNeMo / TorchPhysics
   monitoring/         # RTAMT + MoonLight helpers (and differentiable STL ‘stl_soft’)
   monitors/           # simple spec snippets (STL/STREL) for quick reuse
-  datasets/           # small synthetic datasets (e.g., STLnet-style toy generator)
+  datasets/           # small synthetic datasets (e.g., STLnet‑style toy generator)
   experiments/        # 1D diffusion, 2D heat (minimal CPU demos)
   physics/            # PDE utilities for toy problems
   training/           # light train/eval scaffolding (grids, seeds)
@@ -87,8 +87,8 @@ All demos are tiny; expect seconds on CPU.
 
 - **STL soft penalties** (`monitoring/stl_soft.py`) — smooth min/max & temporal ops; unit tests in `tests/test_stl_soft.py`.
 - **RTAMT monitor “hello”** (`monitors/rtamt_hello.py`) — evaluate `G_[a,b](u ≤ u_max)` on short traces; tested in `tests/test_rtamt_hello.py`.
-- **MoonLight STREL “hello”** (`monitors/moonlight_hello.py`, `monitors/moonlight_strel_hello.py`) — requires Java 21+; tested with skips if missing.
-- **SpaTiaL spec “hello”** (`monitors/spatial_demo.py`) — Linux/macOS only (MONA dependency); tests skip on Windows.
+- **MoonLight STREL “hello”** (`monitors/moonlight_hello.py`, `monitors/moonlight_strel_hello.py`) — requires **Java 21+**; tests skip if missing.
+- **SpaTiaL spec “hello”** (`monitors/spatial_demo.py`) — Linux/macOS only for MONA‑based planner; tests skip on Windows.
 - **Framework smoke tests**:
   - `frameworks/neuromancer_hello.py` (`tests/test_neuromancer_hello.py`)
   - `frameworks/physicsnemo_hello.py` (`tests/test_physicsnemo_hello.py`)
@@ -111,8 +111,8 @@ Use `stl_soft` to approximate STL robustness (smooth min/max via log‑sum‑exp
 - **PhysicsNeMo**: add a callback/head computing soft robustness; aggregate into Hydra‑configured loss.
 
 **C. Spatial logic** (STREL/SpaTiaL):  
-For PDE fields: encode properties like “**hotspot dissipates within T across the domain**” (STREL reach/escape).  
-For object/sensor graphs: specify relations like “**no more than K sensors within radius R below speed threshold for >Δt**” (SpaTiaL).
+For PDE fields: encode properties like **“hotspot dissipates within T across the domain”** (STREL reach/escape).  
+For object/sensor graphs: specify relations like **“no more than K sensors within radius R below speed threshold for >Δt”** (SpaTiaL).
 
 ---
 
@@ -120,14 +120,12 @@ For object/sensor graphs: specify relations like “**no more than K sensors wit
 
 | Component | What it is (one‑liner) | Install notes |
 |---|---|---|
-| **Neuromancer** | PyTorch SciML library for constrained optimization, PINNs, DPC | `pip install neuromancer` or clone; docs & examples provided. |
-| **PhysicsNeMo** | NVIDIA’s (ex‑Modulus) Physics‑AI stack; neural operators/PINNs with Hydra tooling | `pip install nvidia-physicsnemo` or use NGC container; CPU ok, GPU recommended for big models. |
-| **TorchPhysics** | Mesh‑free PDE library implementing PINNs/DeepRitz/DeepONets/FNO | `pip install torchphysics` (needs PyTorch ≥ 2.0). |
-| **RTAMT** | STL monitoring (offline & bounded‑future online) with robustness | `pip install rtamt` (C++ backend optional). |
-| **MoonLight (STREL)** | Java engine + Python pkg for spatio‑temporal monitoring (STREL) | `pip install moonlight` + **Java 21+**. |
-| **SpaTiaL** | Spatio‑temporal object relations + planning/monitoring | `pip install spatial-spec` (+ MONA/`ltlf2dfa`; **Linux/macOS**). |
-
-**References:** Neuromancer repo & docs; NVIDIA PhysicsNeMo repo & install guide; TorchPhysics repo & docs; RTAMT repo; MoonLight repo (STREL support, Java 21+); SpaTiaL PyPI & paper. Full links are in **References** below.
+| **Neuromancer** | PyTorch SciML library for constrained optimization, PINNs, DPC | `pip install neuromancer` or clone; docs & examples available. |
+| **PhysicsNeMo** | NVIDIA’s (ex‑Modulus) physics‑AI stack; neural operators/PINNs with Hydra tooling | `pip install nvidia-physicsnemo` (Sym add‑on: `nvidia-physicsnemo-sym`); or use NGC container. |
+| **TorchPhysics** | Mesh‑free PDE library with PINNs/DeepRitz/DeepONets/FNO | `pip install torchphysics` (needs PyTorch ≥ 2.0). |
+| **RTAMT** | STL monitoring (offline & online; bounded‑future online) with robustness semantics | `pip install rtamt` (optional C++ backend). |
+| **MoonLight (STREL)** | Java engine + Python package for spatio‑temporal monitoring (STREL) | `pip install moonlight` + **Java 21+** in PATH. |
+| **SpaTiaL** | Spatio‑temporal object relations + planning/monitoring | `pip install spatial-spec` (+ MONA/`ltlf2dfa`; Linux/macOS recommended). |
 
 ---
 
@@ -147,10 +145,13 @@ Pick **one primary** + **one backup** early in the semester.
    - Example specs: `G_[0,T] (p_max − p(x,t) ≥ 0 ∧ p(x,t) − p_min ≥ 0)`; `G_[0,T] (‖∇p‖ ≤ c)`.
 
 3) **Urban sensor networks (traffic speed)** — *graph sensors, natural STREL*  
-   - **METR‑LA** (207 sensors, 5‑minute speeds, Mar–Jun 2012) and **PEMS‑BAY** (325 sensors, Jan–May 2017).  
-   - Example specs: “No cascade: *not* (≥ 10 sensors within 2‑hop radius below 20 mph for ≥ 15 min)” or “Congestion waves propagate slower than `v_max` across adjacency.”
+   - **METR‑LA** (207 sensors, 5‑minute speeds, **Mar 1–Jun 30 2012**).  
+   - **PEMS‑BAY** (325 sensors, 5‑minute speeds, **Jan 1–May 31 2017**).  
+   - Example specs: *No cascade:* **not**(≥ 10 sensors within 2‑hop radius below 20 mph for ≥ 15 min);  
+     *Bounded propagation:* congestion waves propagate slower than `v_max` across adjacency.
 
-> Alternative: **Air‑quality sensors** (e.g., PM2.5 city networks) with STREL “surround/reach” constraints (see STLnet and related smart‑city work).
+> Alternative: **Air‑quality sensors** (e.g., PM2.5 city networks) with STREL “surround/reach” constraints (see STLnet and related smart‑city work).  
+> *Scaling option later:* **LargeST** (NeurIPS 2023) provides statewide, long‑horizon traffic with metadata—use only after core pipeline is proven on small sets.
 
 ---
 
@@ -198,7 +199,7 @@ penalty = (-soft_G_always_leq(u_pred, umax)).relu().mean()  # add to loss
 
 - Prefer **CPU** runs first; turn on GPU only after correctness.  
 - For MoonLight (STREL), ensure **Java 21+** is installed and on `PATH`.  
-- SpaTiaL relies on **MONA/ltlf2dfa** and is best on Linux/macOS (it is skipped on Windows in tests).  
+- SpaTiaL relies on **MONA/ltlf2dfa** and is best on Linux/macOS (its automaton planner is skipped on Windows in tests).  
 - Keep datasets **small** (e.g., 16–64² grids, 100–500 samples) for rapid iteration; scale later.  
 - Use `pytest -q -k ...` to run focused subsets; CI mirrors this minimal footprint.
 
@@ -213,32 +214,37 @@ penalty = (-soft_G_always_leq(u_pred, umax)).relu().mean()  # add to loss
 - **NVIDIA PhysicsNeMo** — Repo & install guide (ex‑Modulus; CPU/GPU; tutorials e.g., **Darcy FNO**).  
   - GitHub: https://github.com/NVIDIA/physicsnemo  
   - Install: https://docs.nvidia.com/physicsnemo/latest/getting-started/installation.html  
-  - Sym tutorial (Darcy FNO): https://docs.nvidia.com/physicsnemo/latest/physicsnemo-sym/user_guide/neural_operators/darcy_fno.html
+  - Darcy FNO tutorial: https://docs.nvidia.com/physicsnemo/latest/physicsnemo-sym/user_guide/neural_operators/darcy_fno.html
 
 - **TorchPhysics** — Repo & docs (PINNs/DeepRitz/DeepONets/FNO).  
   - GitHub: https://github.com/boschresearch/torchphysics  
   - Docs: https://boschresearch.github.io/torchphysics/
 
 - **RTAMT** — STL monitoring (robustness; bounded‑future online).  
-  - GitHub: https://github.com/nickovic/rtamt
+  - GitHub: https://github.com/nickovic/rtamt  
+  - PyPI: https://pypi.org/project/rtamt/
 
 - **MoonLight (STREL)** — Java engine + Python package; **requires Java 21+**.  
   - GitHub: https://github.com/MoonLightSuite/moonlight
 
 - **SpaTiaL** — Spatio‑temporal specifications; Linux/macOS recommended (MONA/`ltlf2dfa`).  
-  - PyPI: https://pypi.org/project/spatial-spec/  
-  - Paper: https://link.springer.com/article/10.1007/s10514-023-10145-1
+  - GitHub: https://github.com/KTH-RPL-Planiacs/SpaTiaL  
+  - PyPI: https://pypi.org/project/spatial-spec/
 
 - **STLnet** — NeurIPS 2020 paper enforcing STL in sequence models; relevant for STL‑guided training ideas.  
-  - Abstract/PDF: https://proceedings.neurips.cc/paper/2020/file/a7da6ba0505a41b98bd85907244c4c30-Paper.pdf
+  - Abstract/PDF: https://proceedings.neurips.cc/paper/2020/file/a7da6ba0505a41b98bd85907244c4c30-Paper.pdf  
+  - Code: https://github.com/meiyima/STLnet
 
 - **Physics datasets** (starter options)  
-  - **PDEBench** (DarUS archive & toolkit): https://github.com/pdebench/PDEBench  
+  - **PDEBench** (NeurIPS 2022 benchmark + data): https://github.com/pdebench/PDEBench  
   - **FNO datasets** (Burgers/Darcy/NS): https://github.com/li-Pingan/fourier-neural-operator
 
 - **Traffic datasets** (sensor networks)  
-  - **METR‑LA**/**PEMS‑BAY** summaries: https://arxiv.org/abs/2403.16495  
-  - LargeST (large‑scale, if needed): https://proceedings.neurips.cc/paper_files/paper/2023/file/ee57cd73a76bd927ffca3dda1dc3b9d4-Paper-Datasets_and_Benchmarks.pdf
+  - **METR‑LA**: description & files (207 sensors, Mar–Jun 2012): https://www.kaggle.com/datasets/annnnguyen/metr-la-dataset  
+  - **PEMS‑BAY**: summary (325 sensors, Jan–May 2017): https://torch-spatiotemporal.readthedocs.io/en/latest/modules/datasets_in_tsl.html  
+  - **LargeST (NeurIPS 2023)**: paper & code:  
+    - Paper: https://proceedings.neurips.cc/paper_files/paper/2023/file/ee57cd73a76bd927ffca3dda1dc3b9d4-Paper-Datasets_and_Benchmarks.pdf  
+    - Repo: https://github.com/liuxu77/LargeST
 
 ---
 
