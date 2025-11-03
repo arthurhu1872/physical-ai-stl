@@ -5,7 +5,7 @@
 #   • Give a *one-command* developer UX for this repository: create a venv,
 #     install deps (lean or full), run tests, and execute the small CPU‑friendly
 #     demos required for CS‑3860‑01 (Neuromancer/TorchPhysics/PhysicsNeMo +
-#     RTAMT/MoonLight/SpaTiaL).  The heavy stacks are optional.
+#     RTAMT/MoonLight/SpaTiaL). The heavy stacks are optional.
 #   • Everything here is *safe* to run on a laptop (CPU by default), and mirrors
 #     CI behavior. Optional CUDA installs are available when desired.
 #
@@ -14,8 +14,7 @@
 #   • Defensive shell: stop on errors; propagate failures through pipes.
 #   • Tools like ruff/mypy/pre-commit are *optional* – recipes won’t fail if
 #     they are not installed.
-#   • Uses `uv` if available for fast, hermetic installs; otherwise falls back
-#     to pip.
+#   • Prefer `uv` when available for fast, hermetic installs; fall back to pip.
 # ============================================================================
 SHELL := bash
 .ONESHELL:
@@ -32,11 +31,22 @@ HAVE_UV        := $(shell test -n "$(UV)" && echo 1 || echo 0)
 
 # ---- Virtual environment -------------------------------------------------------
 VENV_DIR       ?= .venv
-VENV_BIN       := $(VENV_DIR)/bin
-ACTIVATE       := . "$(VENV_BIN)/activate"
+
+# Cross‑platform activation: use bin/ on POSIX, Scripts/ on Windows (Git Bash).
+# We *don’t* hardcode the path – we check both every time to avoid foot‑guns.
+define ACTIVATE
+if [ -f "$(VENV_DIR)/bin/activate" ]; then \
+  . "$(VENV_DIR)/bin/activate"; \
+elif [ -f "$(VENV_DIR)/Scripts/activate" ]; then \
+  . "$(VENV_DIR)/Scripts/activate"; \
+else \
+  echo "❌ No virtualenv at '$(VENV_DIR)'. Run 'make venv' first." >&2; \
+  exit 1; \
+fi
+endef
 
 # ---- Torch channel selection ---------------------------------------------------
-# cpu (default), or CUDA wheels e.g. cu118, cu121
+# cpu (default), or CUDA wheels e.g. cu118, cu121, cu124
 TORCH_CHANNEL  ?= cpu
 
 # ---- Paths --------------------------------------------------------------------
@@ -55,6 +65,7 @@ PIP_QUIET      := -q
 export PIP_DISABLE_PIP_VERSION_CHECK := 1
 export PYTHONDONTWRITEBYTECODE       := 1
 export PYTHONUNBUFFERED              := 1
+export PYTHONNOUSERSITE              := 1
 export MPLBACKEND                    := Agg
 export OMP_NUM_THREADS               := 1
 export MKL_NUM_THREADS               := 1
@@ -83,12 +94,14 @@ env: ## Print environment & dependency summary
 	@which $(PIP) || true
 	@echo "—— Installed top‑level packages (short) ——"
 	@$(PY) - <<'PY'
-import importlib.util as I, sys
+import importlib.util as I
 def have(m): return I.find_spec(m) is not None
-print("torch:", have("torch"), "| neuromancer:", have("neuromancer"),
+print("torch:", have("torch"),
+      "| neuromancer:", have("neuromancer"),
       "| torchphysics:", have("torchphysics"),
-      "| physic...", "nemo" if have("nvidia.physicsnemo") else False,
-      "| rtamt:", have("rtamt"), "| moonlight:", have("moonlight"),
+      "| physicsnemo:", have("nvidia.physicsnemo") or have("physicsnemo"),
+      "| rtamt:", have("rtamt"),
+      "| moonlight:", have("moonlight"),
       "| spatial-spec:", have("spatial_spec"))
 PY
 	@echo "Tip: run 'make check' for a deeper probe."
@@ -111,7 +124,7 @@ venv: ## Create a local virtualenv in $(VENV_DIR)
 	    $(PY) -m venv "$(VENV_DIR)"; \
 	  fi; \
 	fi
-	@$(ACTIVATE); $(PY) -m pip $(PIP_QUIET) install -U pip wheel
+	@$(call ACTIVATE); $(PY) -m pip $(PIP_QUIET) install -U pip wheel
 
 .PHONY: dirs
 dirs: ## Create standard output directories
@@ -120,7 +133,7 @@ dirs: ## Create standard output directories
 ## —— Installation ————————————————————————————————————————————————————————
 .PHONY: install
 install: venv ## Install minimal runtime (requirements.txt)
-	@$(ACTIVATE); \
+	@$(call ACTIVATE); \
 	if [ "$(HAVE_UV)" = "1" ]; then \
 	  $(UV) pip install --python $(PY) -r requirements.txt; \
 	else \
@@ -129,7 +142,7 @@ install: venv ## Install minimal runtime (requirements.txt)
 
 .PHONY: install-extras
 install-extras: venv ## Install heavy extras (STL/STREL + physics‑ML toolkits)
-	@$(ACTIVATE); \
+	@$(call ACTIVATE); \
 	if [ "$(HAVE_UV)" = "1" ]; then \
 	  $(UV) pip install --python $(PY) -r requirements-extra.txt; \
 	else \
@@ -138,13 +151,14 @@ install-extras: venv ## Install heavy extras (STL/STREL + physics‑ML toolkits)
 
 .PHONY: install-dev
 install-dev: venv ## Install developer/test deps
-	@$(ACTIVATE); \
+	@$(call ACTIVATE); \
 	if [ "$(HAVE_UV)" = "1" ]; then \
 	  $(UV) pip install --python $(PY) -r requirements-dev.txt; \
 	else \
 	  $(PIP) install -r requirements-dev.txt; \
 	fi
-	@$(ACTIVATE); $(PY) -m pip $(PIP_QUIET) install -U ruff mypy pre-commit || true
+	@$(call ACTIVATE); $(PY) -m pip $(PIP_QUIET) install -U ruff mypy pre-commit || true
+	@$(call ACTIVATE); $(PY) -m pre_commit install || true
 
 .PHONY: install-all
 install-all: install install-extras install-dev ## Install everything (runtime + extras + dev)
@@ -152,7 +166,7 @@ install-all: install install-extras install-dev ## Install everything (runtime +
 ## ---- Torch wheels (explicit channel to avoid huge CUDA by default) ----------
 .PHONY: install-torch-cpu
 install-torch-cpu: venv ## Install PyTorch CPU wheels
-	@$(ACTIVATE); \
+	@$(call ACTIVATE); \
 	if [ "$(HAVE_UV)" = "1" ]; then \
 	  $(UV) pip install --python $(PY) --index-url https://download.pytorch.org/whl/cpu torch torchvision torchaudio; \
 	else \
@@ -160,11 +174,11 @@ install-torch-cpu: venv ## Install PyTorch CPU wheels
 	fi
 
 .PHONY: install-torch-cuda
-install-torch-cuda: venv ## Install PyTorch CUDA wheels (set TORCH_CHANNEL=cu121, cu118, ...)
+install-torch-cuda: venv ## Install PyTorch CUDA wheels (set TORCH_CHANNEL=cu121, cu118, cu124, ...)
 	@if [ "$(TORCH_CHANNEL)" = "cpu" ]; then \
 	  echo "Set TORCH_CHANNEL=cu121 (or cu118, cu124, ...) for CUDA wheels." && exit 1; \
 	fi
-	@$(ACTIVATE); \
+	@$(call ACTIVATE); \
 	if [ "$(HAVE_UV)" = "1" ]; then \
 	  $(UV) pip install --python $(PY) --index-url https://download.pytorch.org/whl/$(TORCH_CHANNEL) torch torchvision torchaudio; \
 	else \
@@ -174,46 +188,46 @@ install-torch-cuda: venv ## Install PyTorch CUDA wheels (set TORCH_CHANNEL=cu121
 ## —— Developer quality gates ————————————————————————————————————————————
 .PHONY: format
 format: ## Auto-format with Ruff (if installed)
-	-@$(ACTIVATE); $(PY) -m ruff format .
+	-@$(call ACTIVATE); $(PY) -m ruff format .
 
 .PHONY: lint
 lint: ## Lint with Ruff (if installed)
-	-@$(ACTIVATE); $(PY) -m ruff check .
+	-@$(call ACTIVATE); $(PY) -m ruff check .
 
 .PHONY: typecheck
 typecheck: ## Static type check with mypy (if installed)
-	-@$(ACTIVATE); $(PY) -m mypy src || true
+	-@$(call ACTIVATE); $(PY) -m mypy src || true
 
 .PHONY: precommit
 precommit: ## Run pre-commit hooks across repo (if installed)
-	-@$(ACTIVATE); $(PY) -m pre_commit run --all-files || true
+	-@$(call ACTIVATE); $(PY) -m pre_commit run --all-files || true
 
 ## —— Tests ———————————————————————————————————————————————————————————————
 PYTEST_ARGS ?= -q
 .PHONY: test
 test: ## Run full test suite (CPU‑friendly; optional deps skip automatically)
-	@$(ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) -m pytest $(PYTEST_ARGS)
+	@$(call ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) -m pytest $(PYTEST_ARGS)
 
 .PHONY: test-fast
 test-fast: ## Run the quick smoke tests (hello demos + core utilities)
-	@$(ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) -m pytest -q -k "hello or pde"
+	@$(call ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) -m pytest -q -k "hello or pde"
 
 .PHONY: coverage
 coverage: ## Run tests with coverage
-	@$(ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) -m pytest --cov=physical_ai_stl --cov-report=term-missing -q
+	@$(call ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) -m pytest --cov=physical_ai_stl --cov-report=term-missing -q
 
 ## —— Experiments & monitoring ————————————————————————————————————————————
 EXTRA_FLAGS ?=
 .PHONY: diffusion1d
 diffusion1d: dirs ## Train & evaluate the 1D diffusion PINN baseline + STL audit
-	@$(ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/run_experiment.py -c configs/diffusion1d_baseline.yaml $(EXTRA_FLAGS)
-	@$(ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/run_experiment.py -c configs/diffusion1d_stl.yaml $(EXTRA_FLAGS)
+	@$(call ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/run_experiment.py -c configs/diffusion1d_baseline.yaml $(EXTRA_FLAGS)
+	@$(call ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/run_experiment.py -c configs/diffusion1d_stl.yaml $(EXTRA_FLAGS)
 
 .PHONY: heat2d
 heat2d: dirs ## Train & evaluate the 2D heat demo + STREL audit (MoonLight)
-	@$(ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/run_experiment.py -c configs/heat2d_baseline.yaml $(EXTRA_FLAGS)
+	@$(call ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/run_experiment.py -c configs/heat2d_baseline.yaml $(EXTRA_FLAGS)
 
-# Neuromancer sine fit with STL-style upper bound (see configs/neuromancer_sine_bound.yaml)
+# Neuromancer/Torch tiny demo: sine fit with an STL-style upper bound
 EPOCHS ?= 200
 LR     ?= 1e-3
 BOUND  ?= 0.8
@@ -222,31 +236,31 @@ N      ?= 1024
 MODE   ?= torch        # torch | neuromancer (if available)
 .PHONY: neuromancer-sine
 neuromancer-sine: dirs ## Tiny Neuromancer/Torch demo with soft STL-style bound
-	@$(ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/train_neuromancer_stl.py \
+	@$(call ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/train_neuromancer_stl.py \
 	  --epochs $(EPOCHS) --lr $(LR) --bound $(BOUND) --weight $(WEIGHT) \
 	  --n $(N) --seed $(SEED) --device $(DEVICE) --mode $(MODE) --out $(RESULTS_DIR)
 
 .PHONY: rtamt-eval
 rtamt-eval: ## Evaluate STL robustness using RTAMT on saved diffusion field
-	@$(ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/eval_diffusion_rtamt.py --ckpt $(RESULTS_DIR)/diffusion1d_field.pt || true
+	@$(call ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/eval_diffusion_rtamt.py --ckpt $(RESULTS_DIR)/diffusion1d_field.pt || true
 
 .PHONY: moonlight-eval
 moonlight-eval: ## Evaluate STREL properties with MoonLight on heat2d outputs
-	@$(ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/eval_heat2d_moonlight.py --ckpt $(RESULTS_DIR)/heat2d_field.pt || true
+	@$(call ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/eval_heat2d_moonlight.py --ckpt $(RESULTS_DIR)/heat2d_field.pt || true
 
 .PHONY: ablations
 ablations: dirs ## Run light ablations for diffusion1d (epochs/penalty sweeps)
-	@$(ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/run_ablations_diffusion.py --out $(RESULTS_DIR)/ablations.csv
-	@$(ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/plot_ablations.py --csv $(RESULTS_DIR)/ablations.csv --out $(PLOTS_DIR)
+	@$(call ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/run_ablations_diffusion.py --out $(RESULTS_DIR)/ablations.csv
+	@$(call ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/plot_ablations.py --csv $(RESULTS_DIR)/ablations.csv --out $(PLOTS_DIR)
 
 .PHONY: survey
 survey: ## Summarize framework feature survey to docs/framework_survey.md
-	@$(ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/framework_survey.py --out docs/framework_survey.md || true
+	@$(call ACTIVATE); PYTHONPATH=$(PY_SRC) $(PY) scripts/framework_survey.py --out docs/framework_survey.md || true
 
 ## —— Java (MoonLight) ————————————————————————————————————————————————————
 .PHONY: java-check
 java-check: ## Check if Java is available (required for MoonLight/STREL)
-	@java -version || echo "Java not found; consider 'pip install install-jdk' or system JDK (see requirements-extra.txt)."
+	@java -version || echo "Java not found; consider 'pip install install-jdk' or a system JDK (see requirements-extra.txt)."
 
 ## —— Containers ———————————————————————————————————————————————————————————
 .PHONY: docker-build
