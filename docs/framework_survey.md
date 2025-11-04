@@ -45,13 +45,10 @@
 
 ## 3) How we integrate STL into training (soft enforcement)
 
-Let `ρ(φ, x)` be the **robustness** of an STL/STREL formula `φ` on trace `x`. For a *safety* spec (e.g., bounds), define a smooth penalty
-\[
-\mathcal{L}_{\text{stl}}(x) \,=\, \operatorname{softplus}\big(\tau^{-1}\,[m - ρ(φ, x)]\big),
-\]
-with **margin** `m ≥ 0` and **temperature** `τ > 0`. The **total loss** becomes  
-\( \mathcal{L} = \mathcal{L}_{\text{task}} + \lambda\,\mathcal{L}_{\text{stl}} \).  
-Tune \(\lambda, m, τ\) via ablations.
+Let $\rho(\varphi, x)$ be the robustness of an STL/STREL formula $\varphi$ on trace $x$. For a safety spec (e.g., bounds), define a smooth penalty
+$$\mathcal{L}_{\text{stl}}(x)=\operatorname{softplus}\!\left(\frac{m-\rho(\varphi,x)}{\tau}\right),$$
+with margin $m\ge 0$ and temperature $\tau>0$. The total loss becomes
+$$\mathcal{L}=\mathcal{L}_{\text{task}}+\lambda\,\mathcal{L}_{\text{stl}}.$$
 
 **Implementation sketch (PyTorch):**
 
