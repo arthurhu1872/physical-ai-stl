@@ -69,7 +69,7 @@ stl:
 device: null                   # null ⇒ auto (cuda → mps → cpu)
 dtype: float32                 # fp32 for stable higher-order derivatives
 amp: false                     # AMP off by default for PINN stability
-compile: true                  # torch.compile when available (falls back safely)
+compile: false                 # torch.compile when available (falls back safely)
 print_every: 25
 
 # ---------------------------------------------------------------------------
