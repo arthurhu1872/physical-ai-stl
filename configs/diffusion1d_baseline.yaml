@@ -56,7 +56,7 @@ stl:
 device: null               # null => auto (cuda -> mps -> cpu)
 dtype: float32             # higher-order derivatives more stable in fp32
 amp: false                 # AMP off by default for PINN stability
-compile: true              # safe speedup on PyTorch 2.x (falls back if unavailable)
+compile: false             # safe speedup on PyTorch 2.x (falls back if unavailable)
 print_every: 25
 
 # Output
