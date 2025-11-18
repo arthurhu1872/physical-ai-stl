@@ -1,4 +1,10 @@
 signal { bool hot; }
+
+// NEW: define a space so we’re allowed to use spatial operators like `somewhere`
+space {
+  edges { real dist; }
+}
+
 domain boolean;
 
 formula nowhere_hot     = !(somewhere(hot));
