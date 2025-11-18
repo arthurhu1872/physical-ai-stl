@@ -6,7 +6,7 @@ space {
 
 domain boolean;
 
-formula nowhere_hot     = !(somewhere(hot));
+formula nowhere_hot     = !(somewhere[0, 100](hot));
 formula quench          = globally(nowhere_hot);
 formula contain         = eventually(quench);
 formula contain_hotspot = contain;
