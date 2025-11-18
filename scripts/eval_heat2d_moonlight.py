@@ -1,127 +1,70 @@
 from __future__ import annotations
-"""Evaluate a saved 2‑D heat‑equation rollout against a MoonLight STREL spec.
+"""
+Evaluate a saved 2‑D heat‑equation rollout against a MoonLight STREL spec.
 
-This script is a small, dependency‑light evaluation harness used to *monitor*
-spatio‑temporal properties of 2‑D fields (e.g., a Heat2D simulation) with
-[MoonLight](https://github.com/MoonLightSuite/moonlight), via the helper
-glue in :mod:`physical_ai_stl.monitoring.moonlight_helper`.
+This script is intentionally *standalone* and talks directly to the official
+`moonlight` Python package, following the usage documented here:
+  - https://github.com/MoonLightSuite/moonlight/wiki/Python
 
-Key features
-------------
-- Accepts either a directory of per‑time `.npy` frames or a single 3‑D `.npy`
-  tensor with layout `(nx, ny, nt)` (or `(nt, nx, ny)` via `--layout t_xy`).
-- Auto‑detects boolean vs real‑valued semantics from the `.mls` script and
-  chooses whether to binarize the field accordingly; can be overridden with
-  `--binarize/--no-binarize`.
-- Robust, version‑agnostic call into MoonLight monitors (handles
-  `monitor_graph_time_series`, `monitorGraphTimeSeries`, and older
-  `monitor(...)` variants).
-- Fast and memory‑aware: uses memory‑mapped loads for large `.npy` files and
-  avoids materializing copies unless necessary.
-- Produces a concise human‑readable summary and (optionally) a JSON artifact.
+It does **not** depend on `physical_ai_stl.monitoring.moonlight_helper`
+anymore, because that layer has slightly different expectations about
+the monitor signature and was causing runtime `TypeError` issues like:
 
-Example
--------
-Evaluate the included *contain hotspot* spec (eventually, everywhere cool):
+    SpatialTemporalScriptComponent.monitor() missing 3 required
+    positional arguments: 'graph', 'signalTimeArray', and 'signalValues'
 
-    python scripts/eval_heat2d_moonlight.py \
-        --frames-dir results/heat2d \
-        --mls scripts/specs/contain_hotspot.mls --formula contain \
-        --out-json results/heat2d_moonlight.json
+Instead, we construct the spatial model and the spatio‑temporal signal
+directly in the format MoonLight expects and call:
 
-This will **auto‑binarize** the field because the spec declares a boolean
-signal, using a threshold computed as `mean + k·std` (see `--z-k`) or a
-quantile threshold if `--quantile` is provided.
+    result = monitor.monitor(graph_times, graph, signal_times, signal_values)
 
-Notes
------
-- If MoonLight (or the Python/JPype bridge) is unavailable, the script exits
-  gracefully with a short message so it can be invoked in environments without
-  Java during CI.
-- The graph is a 4‑neighborhood grid with configurable edge weight
-  (`--adj-weight`) to match common STREL examples.
+where:
+  * graph_times     = [0.0]  (static spatial model)
+  * graph           = [[[src, dst, weight], ...]]  (4‑neighborhood grid)
+  * signal_times    = [0.0, 1.0, 2.0, ..., nt‑1]   (or scaled by --dt)
+  * signal_values   = shape [n_locations][nt][1]   (1‑D scalar per node)
+
+You can run this exactly as you tried before, e.g.:
+
+    python scripts/eval_heat2d_moonlight.py ^
+      --field assets\heat2d_scalar\field_xy_t.npy ^
+      --layout xy_t ^
+      --mls scripts\specs\contain_hotspot.mls ^
+      --formula contain_hotspot ^
+      --out-json results\heat2d_contain_hotspot.json
 """
 
 import argparse
 import json
 import re
 import sys
-from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence, Tuple, List
 
 import numpy as np
 
-# Optional MoonLight glue — imported lazily & guarded (graceful skip if missing)
-try:  # pragma: no cover
-    from physical_ai_stl.monitoring.moonlight_helper import (
-        build_grid_graph,
-        field_to_signal,
-        get_monitor,
-        load_script_from_file,
-    )
-
+# -------------------------------------------------------------------------
+# MoonLight import (directly from the PyPI package)
+# -------------------------------------------------------------------------
+try:
+    # This is the API documented in the official MoonLight wiki.
+    from moonlight import ScriptLoader
     _MOONLIGHT_IMPORT_ERROR: BaseException | None = None
 except Exception as exc:  # pragma: no cover
-    build_grid_graph = field_to_signal = get_monitor = load_script_from_file = None  # type: ignore
+    ScriptLoader = None  # type: ignore
     _MOONLIGHT_IMPORT_ERROR = exc
 
 
-# ---------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 # Small utilities
-# ---------------------------------------------------------------------------
+# -------------------------------------------------------------------------
 
-def _natural_key(p: Path) -> tuple[tuple[int, int | str], ...]:
-    """Natural sort helper for files like frame_1.npy, frame_10.npy, ..."""
-    s = p.name
-    parts = re.split(r"(\d+)", s)
-    key: list[tuple[int, int | str]] = []
-    for part in parts:
-        if part.isdigit():
-            key.append((0, int(part)))
-        else:
-            key.append((1, part))
-    return tuple(key)
+def _load_field_from_npy(path: Path, layout: str = "xy_t") -> Tuple[np.ndarray, int, int, int]:
+    """Load a 3‑D numpy array and return `(u, nx, ny, nt)`.
 
-
-def _find_default_frames_dir() -> Path | None:
-    # Common locations in this repo
-    candidates = [
-        Path("results/heat2d"),  # src/physical_ai_stl/experiments/heat2d.py saves here
-        Path("results"),         # broad fallback (used with --glob)
-    ]
-    for c in candidates:
-        if c.exists():
-            return c
-    return None
-
-
-def _glob_frames(frames_dir: Path, pattern: str) -> list[Path]:
-    frames = sorted(frames_dir.glob(pattern), key=_natural_key)
-    return [p for p in frames if p.suffix == ".npy" and p.is_file()]
-
-
-def _load_field_from_frames(frames: Sequence[Path]) -> tuple[np.ndarray, int, int, int]:
-    if not frames:
-        raise FileNotFoundError("No .npy frames found (empty list).")
-    # map first to get shape, memory-map the rest for speed & low peak memory
-    first = np.load(frames[0], mmap_mode="r")
-    if first.ndim != 2:
-        raise ValueError(f"Expected 2‑D frame, got shape {first.shape} at {frames[0]}")
-    nx, ny = int(first.shape[0]), int(first.shape[1])
-    arrs = [np.asarray(first)]
-    for p in frames[1:]:
-        a = np.load(p, mmap_mode="r")
-        if a.shape != (nx, ny):
-            raise ValueError(f"Frame shape mismatch at {p}: got {a.shape}, expected {(nx, ny)}")
-        arrs.append(np.asarray(a))
-    # stack time as last axis: (nx, ny, nt)
-    u = np.stack(arrs, axis=-1)
-    nt = int(u.shape[-1])
-    return u, nx, ny, nt
-
-
-def _load_field_from_npy(path: Path, layout: str = "xy_t") -> tuple[np.ndarray, int, int, int]:
+    layout == "xy_t"  → array is (nx, ny, nt)
+    layout == "t_xy"  → array is (nt, nx, ny)
+    """
     a = np.load(path, mmap_mode="r")
     if a.ndim != 3:
         raise ValueError(f"Expected 3‑D array in {path}, got shape {a.shape}")
@@ -130,37 +73,8 @@ def _load_field_from_npy(path: Path, layout: str = "xy_t") -> tuple[np.ndarray, 
         return np.asarray(a), nx, ny, nt
     if layout == "t_xy":
         nt, nx, ny = int(a.shape[0]), int(a.shape[1]), int(a.shape[2])
-        # return as (nx, ny, nt) to keep downstream consistent
-        return np.asarray(a).transpose(1, 2, 0), nx, ny, nt
+        return np.asarray(a).transpose(1, 2, 0), nx, ny, nt  # (nx, ny, nt)
     raise ValueError(f"Invalid layout '{layout}'; use 'xy_t' or 't_xy'.")
-
-
-def _read_text(path: Path) -> str:
-    return Path(path).read_text(encoding="utf-8", errors="ignore")
-
-
-def _spec_declares_boolean_signal(mls_text: str) -> bool:
-    """Heuristically detect boolean semantics from an MLS script.
-
-    We check whether a `bool` signal is declared and/or `domain boolean;`.
-    This mirrors common MoonLight examples and keeps the CLI ergonomic.
-    """
-    mt_sig = re.search(r"signal\s*\{[^}]*\bbool\b", mls_text, flags=re.IGNORECASE | re.DOTALL)
-    mt_dom = re.search(r"domain\s+boolean\s*;", mls_text, flags=re.IGNORECASE)
-    return bool(mt_sig or mt_dom)
-
-
-def _auto_threshold(u: np.ndarray, z_k: float | None, quantile: float | None) -> float:
-    flat = np.asarray(u, dtype=float).reshape(-1)
-    if quantile is not None:
-        if not (0.0 < quantile < 1.0):
-            raise ValueError("--quantile must be in (0, 1)")
-        return float(np.quantile(flat, quantile))
-    # fall back to z-score style threshold
-    m = float(flat.mean())
-    s = float(flat.std(ddof=0))
-    k = 0.5 if z_k is None else float(z_k)
-    return float(m + k * s)
 
 
 def _slice_time(u: np.ndarray, t_start: int | None, t_end: int | None) -> np.ndarray:
@@ -174,78 +88,113 @@ def _slice_time(u: np.ndarray, t_start: int | None, t_end: int | None) -> np.nda
     return u[..., t0:t1]
 
 
-def _monitor_graph_time_series(mon: Any, graph: Any, sig: Any) -> Any:
-    """Robustly call into MoonLight monitor across API variants.
+def _read_text(path: Path) -> str:
+    return Path(path).read_text(encoding="utf-8", errors="ignore")
 
-    We try several method names and argument patterns to handle different
-    MoonLight Python bindings:
 
-    - monitor_graph_time_series(graph, signal)
-    - monitorGraphTimeSeries(graph, signal)
-    - monitor(graph, signalTimeArray, signalValues)
-    - monitor(graph, signal)           (older variants)
-    - monitor(signalTimeArray, signal) (non-graph variants, just in case)
+def _spec_declares_boolean_signal(mls_text: str) -> bool:
+    """Heuristically detect boolean semantics from an MLS script.
+
+    We check for either a `bool` signal declaration or `domain boolean;`.
     """
-    # Derive a simple time array from the number of time steps in `sig`.
-    # field_to_signal returns a list-of-lists structure: [t][node][feature].
-    try:
-        n_times = len(sig)
-    except TypeError:
-        n_times = None
-
-    time_array = list(range(n_times)) if n_times is not None else None
-
-    last_exc: Exception | None = None
-
-    for name in ("monitor_graph_time_series", "monitorGraphTimeSeries", "monitor"):
-        fn = getattr(mon, name, None)
-        if not callable(fn):
-            continue
-
-        # Candidate call patterns, from most to least specific.
-        patterns: list[tuple[Any, ...]] = []
-
-        # Graph + signal only (modern helpers often wrap the time array internally).
-        patterns.append((graph, sig))
-
-        # Graph + explicit time array + signal values.
-        if time_array is not None:
-            patterns.append((graph, time_array, sig))
-
-        # Time array + signal (non-graph variant).
-        if time_array is not None:
-            patterns.append((time_array, sig))
-
-        # Just the signal (some older scalar specs).
-        patterns.append((sig,))
-
-        for args in patterns:
-            try:
-                return fn(*args)
-            except TypeError as e:
-                # Wrong signature, try the next pattern.
-                last_exc = e
-                continue
-
-    # If we get here, nothing worked.
-    msg = (
-        "Failed to call MoonLight monitor with any known signature. "
-        "Last error was: "
-        f"{last_exc!r}"
-    )
-    raise RuntimeError(msg)
+    mt_sig = re.search(r"signal\s*\{[^}]*\bbool\b", mls_text, flags=re.IGNORECASE | re.DOTALL)
+    mt_dom = re.search(r"domain\s+boolean\s*;", mls_text, flags=re.IGNORECASE)
+    return bool(mt_sig or mt_dom)
 
 
-def _summarize_spatiotemporal_output(out: object) -> dict:
+def _auto_threshold(u: np.ndarray, z_k: float | None, quantile: float | None) -> float:
+    flat = np.asarray(u, dtype=float).reshape(-1)
+    if quantile is not None:
+        if not (0.0 < quantile < 1.0):
+            raise ValueError("--quantile must be in (0, 1)")
+        return float(np.quantile(flat, quantile))
+    m = float(flat.mean())
+    s = float(flat.std(ddof=0))
+    k = 0.5 if z_k is None else float(z_k)
+    return float(m + k * s)
+
+
+# -------------------------------------------------------------------------
+# Converters: our own build_grid_graph / field_to_signal
+# -------------------------------------------------------------------------
+
+def build_grid_graph(nx: int, ny: int, weight: float = 1.0) -> Tuple[List[float], List[List[List[float]]]]:
+    """Build a 4‑neighborhood grid as MoonLight expects.
+
+    Returns (graph_times, graph_edges) where:
+
+      * graph_times  = [0.0]   (static spatial model)
+      * graph_edges  = [edges] where `edges` is a list of triples
+                       [src, dst, weight] with *float* indices.
+
+    Node indexing is row‑major: node = i * ny + j (0‑based).
+    """
+    edges: List[List[float]] = []
+    for i in range(nx):
+        for j in range(ny):
+            src = float(i * ny + j)
+            # 4‑neighborhood: up, down, left, right
+            for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                ii, jj = i + di, j + dj
+                if 0 <= ii < nx and 0 <= jj < ny:
+                    dst = float(ii * ny + jj)
+                    edges.append([src, dst, float(weight)])
+    graph_times = [0.0]            # graph is static over time
+    graph = [edges]                # one snapshot at t=0.0
+    return graph_times, graph
+
+
+def field_to_signal(
+    u: np.ndarray,
+    threshold: float | None,
+    dt: float,
+) -> Tuple[List[float], List[List[List[float]]]]:
+    """Convert `(nx, ny, nt)` field into MoonLight's spatio‑temporal *signal*.
+
+    We generate:
+
+      * signal_times  = [0, dt, 2*dt, ..., (nt‑1)*dt]
+      * signal_values = shape [n_locations][nt][1]
+
+    If `threshold` is not None, values are binarized (>= thr → 1.0 else 0.0).
+    """
+    if u.ndim != 3:
+        raise ValueError(f"Expected (nx, ny, nt) field, got shape {u.shape}")
+    nx, ny, nt = u.shape
+    signal_times: List[float] = [float(t * dt) for t in range(nt)]
+    signal_values: List[List[List[float]]] = []
+
+    for i in range(nx):
+        for j in range(ny):
+            ts: List[List[float]] = []
+            for t in range(nt):
+                v = float(u[i, j, t])
+                if threshold is not None:
+                    v = 1.0 if v >= threshold else 0.0
+                ts.append([v])  # 1‑D feature
+            signal_values.append(ts)
+
+    return signal_times, signal_values
+
+
+def _summarize_spatiotemporal_output(out: Any) -> dict:
+    """Turn MoonLight's output into a small summary dict.
+
+    We treat positive values as satisfaction, negative as violation.
+    For spatio‑temporal outputs, we conservatively take the minimum across
+    locations at each time (i.e. require all locations to satisfy).
+    """
     arr = np.asarray(out, dtype=float)
     if arr.ndim == 1:
-        # single value per time (global)
         per_time = arr
     elif arr.ndim == 2:
-        # time x nodes
-        per_time = arr.min(axis=1)  # require satisfaction at *all* nodes
+        # either (n_times, 2) [time, val] or (n_times, n_nodes).
+        # If second column looks like times, we just pick the last column.
+        if arr.shape[1] == 2:
+            per_time = arr[:, 1]
+        else:
+            per_time = arr.min(axis=1)
     else:
-        # unexpected, but try to squeeze
         arr2 = np.squeeze(arr)
         if arr2.ndim == 1:
             per_time = arr2
@@ -254,7 +203,6 @@ def _summarize_spatiotemporal_output(out: object) -> dict:
         else:
             raise ValueError(f"Unexpected monitor output shape {arr.shape}")
 
-    # Boolean semantics typically return +/-1; treat >0 as True.
     satisfied_idx = np.flatnonzero(per_time > 0.0)
     satisfied_eventually = bool(satisfied_idx.size > 0)
     first_sat_idx = int(satisfied_idx[0]) if satisfied_eventually else -1
@@ -264,36 +212,29 @@ def _summarize_spatiotemporal_output(out: object) -> dict:
         "per_time_len": int(per_time.shape[0]),
         "satisfied_eventually": satisfied_eventually,
         "first_satisfaction_index": first_sat_idx,
-        # convenience stats for debugging
         "per_time_min": float(np.min(per_time)),
         "per_time_max": float(np.max(per_time)),
     }
 
 
+# -------------------------------------------------------------------------
+# Main CLI
+# -------------------------------------------------------------------------
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-        description="Audit a saved Heat2D run with a MoonLight STREL spec.",
+        description=(
+            "Audit a saved Heat2D run with a MoonLight STREL spec "
+            "(direct call to moonlight.monitor)."
+        ),
     )
 
-    # ---- Inputs --------------------------------------------------------------
     src = ap.add_argument_group("input source")
-    src.add_argument(
-        "--frames-dir",
-        type=Path,
-        default=None,
-        help="Directory containing 2‑D .npy frames (one file per time).",
-    )
-    src.add_argument(
-        "--glob",
-        type=str,
-        default="*.npy",
-        help="Glob pattern for frame files inside --frames-dir.",
-    )
     src.add_argument(
         "--field",
         type=Path,
-        default=None,
+        required=True,
         help="Single .npy file with a 3‑D array (nx, ny, nt) or (nt, nx, ny).",
     )
     src.add_argument(
@@ -301,35 +242,44 @@ def main() -> None:
         type=str,
         default="xy_t",
         choices=("xy_t", "t_xy"),
-        help="Axis order of --field if provided.",
+        help="Axis order of --field.",
     )
 
-    grid = ap.add_argument_group("grid override (usually auto-detected)")
+    timeg = ap.add_argument_group("time")
+    timeg.add_argument("--t-start", type=int, default=None, help="Start index (inclusive).")
+    timeg.add_argument("--t-end", type=int, default=None, help="End index (exclusive).")
+    timeg.add_argument(
+        "--dt",
+        type=float,
+        default=1.0,
+        help="Time step used to build the signal time array.",
+    )
+
+    grid = ap.add_argument_group("grid")
     grid.add_argument("--nx", type=int, default=None, help="Grid size in x (rows).")
     grid.add_argument("--ny", type=int, default=None, help="Grid size in y (cols).")
+    grid.add_argument(
+        "--adj-weight",
+        type=float,
+        default=1.0,
+        help="Edge weight for the 4‑neighborhood grid.",
+    )
 
     spec = ap.add_argument_group("MoonLight spec")
     spec.add_argument(
         "--mls",
         type=Path,
-        default=Path("scripts/specs/contain_hotspot.mls"),
+        required=True,
         help="Path to a MoonLight .mls script.",
     )
     spec.add_argument(
         "--formula",
         type=str,
-        default="contain",
+        required=True,
         help="Formula name inside the .mls script.",
     )
 
-    timeg = ap.add_argument_group("time window (optional)")
-    timeg.add_argument("--t-start", type=int, default=None, help="Start index (inclusive). ")
-    timeg.add_argument("--t-end", type=int, default=None, help="End index (exclusive).")
-
-    graphg = ap.add_argument_group("graph")
-    graphg.add_argument("--adj-weight", type=float, default=1.0, help="Edge weight for the grid graph.")
-
-    binz = ap.add_argument_group("binarization (used if spec expects boolean semantics)")
+    binz = ap.add_argument_group("binarization (if spec expects boolean semantics)")
     binz.add_argument(
         "--binarize",
         dest="binarize",
@@ -340,9 +290,9 @@ def main() -> None:
         "--no-binarize",
         dest="binarize",
         action="store_false",
-        help="Force real-valued signal (no thresholding).",
+        help="Force real‑valued signal (no thresholding).",
     )
-    binz.set_defaults(binarize=None)  # None = decide automatically from spec
+    binz.set_defaults(binarize=None)
     binz.add_argument(
         "--z-k",
         type=float,
@@ -353,105 +303,124 @@ def main() -> None:
         "--quantile",
         type=float,
         default=None,
-        help="If set, threshold = this quantile of all field values (0<q<1).",
+        help="If set, threshold = this quantile of field values (0<q<1).",
     )
     binz.add_argument(
         "--threshold",
         type=float,
         default=None,
-        help="Absolute threshold; if set it overrides --quantile and --z-k.",
+        help="Absolute threshold; overrides --quantile and --z-k if set.",
     )
 
     outg = ap.add_argument_group("output")
-    outg.add_argument("--out-json", type=Path, default=None, help="Write a JSON summary to this path.")
+    outg.add_argument(
+        "--out-json",
+        type=Path,
+        default=None,
+        help="Write a JSON summary to this path.",
+    )
 
     args = ap.parse_args()
 
-    # ---- MoonLight availability guard -----------------------------------------------------------
-    if load_script_from_file is None:  # pragma: no cover
-        print(f"[MoonLight] Skipping audit (moonlight not available): {_MOONLIGHT_IMPORT_ERROR}")
-        sys.exit(0)
+    # ---- MoonLight availability guard ----------------------------------
+    if ScriptLoader is None:  # pragma: no cover
+        print("[MoonLight] Could not import ScriptLoader from 'moonlight':")
+        print(f"  {_MOONLIGHT_IMPORT_ERROR}")
+        sys.exit(1)
 
-    # ---- Load frames ---------------------------------------------------------------------------
-    if args.field is not None:
-        u, nx, ny, nt = _load_field_from_npy(args.field, layout=args.layout)
-    else:
-        frames_dir = args.frames_dir or _find_default_frames_dir()
-        if frames_dir is None:
-            raise FileNotFoundError(
-                "No frames source found. Provide --field or --frames-dir (e.g., results/heat2d)."
-            )
-        frames = _glob_frames(frames_dir, args.glob)
-        if not frames:
-            raise FileNotFoundError(f"No frames matched {frames_dir}/{args.glob}")
-        u, nx, ny, nt = _load_field_from_frames(frames)
-
-    # Optional grid override
+    # ---- Load field ----------------------------------------------------
+    u, nx_auto, ny_auto, nt = _load_field_from_npy(args.field, layout=args.layout)
     if args.nx is not None:
         nx = int(args.nx)
+    else:
+        nx = nx_auto
     if args.ny is not None:
         ny = int(args.ny)
+    else:
+        ny = ny_auto
 
-    # Optional time slice (avoid copies; returns a view when possible)
+    # Optional time slice
     u = _slice_time(u, args.t_start, args.t_end)
     nt = int(u.shape[-1])
 
     print(f"[input] field: shape=(nx={nx}, ny={ny}, nt={nt})")
     print(f"[spec]  mls={args.mls}  formula={args.formula}")
-    print(f"[graph] 4-neighborhood grid weight={args.adj_weight}")
 
-    # ---- Ensure spec exists; create a minimal default if missing -------------------------------
+    # ---- Load spec via MoonLight --------------------------------------
     if not args.mls.exists():
-        args.mls.parent.mkdir(parents=True, exist_ok=True)
-        args.mls.write_text(
-            "signal { bool hot; }\n"
-            "domain boolean;\n"
-            "formula contain = eventually (!(somewhere (hot)));\n"
-        )
-        print(f"[spec] Created default MoonLight spec at {args.mls}")
-
-    mls = load_script_from_file(str(args.mls))
-    mon = get_monitor(mls, args.formula)
-    graph = build_grid_graph(nx, ny, weight=float(args.adj_weight))
-
-    # ---- Decide binarization based on spec (unless user overrode) ------------------------------
+        raise FileNotFoundError(f"MoonLight spec not found: {args.mls}")
     mls_text = _read_text(args.mls)
     spec_is_boolean = _spec_declares_boolean_signal(mls_text)
-    do_binarize: bool = spec_is_boolean if args.binarize is None else bool(args.binarize)
 
-    # ---- Compute threshold if needed -----------------------------------------------------------
-    thr: float | None
+    try:
+        script_obj = ScriptLoader.loadFromFile(str(args.mls))
+    except Exception as exc:
+        print("[MoonLight] ERROR: failed to load script via ScriptLoader.loadFromFile")
+        print(f"  {exc}")
+        sys.exit(1)
+
+    try:
+        mon = script_obj.getMonitor(args.formula)
+    except Exception as exc:
+        print(f"[MoonLight] ERROR: script has no formula named '{args.formula}'")
+        print(f"  {exc}")
+        sys.exit(1)
+
+    # ---- Build graph and signal ---------------------------------------
+    graph_times, graph = build_grid_graph(nx, ny, weight=float(args.adj_weight))
+
+    # Decide binarization (boolean semantics → default True)
+    if args.binarize is None:
+        do_binarize = spec_is_boolean
+    else:
+        do_binarize = bool(args.binarize)
+
     if do_binarize:
         if args.threshold is not None:
             thr = float(args.threshold)
         else:
             thr = _auto_threshold(u, z_k=args.z_k, quantile=args.quantile)
     else:
-        thr = None  # pass real values (robustness domain)
+        thr = None
 
-    # ---- Convert field to MoonLight signal + monitor -------------------------------------------
-    # field_to_signal returns nested lists with shape [t][node][feature] to cross the JNI boundary.
-    sig = field_to_signal(u, threshold=None if thr is None else float(thr))
+    signal_times, signal_values = field_to_signal(u, threshold=thr, dt=float(args.dt))
 
-    # Version‑agnostic bridge to the underlying Java method(s).
-    out = _monitor_graph_time_series(mon, graph, sig)
+    print(f"[graph] times={graph_times} (len={len(graph_times)})  edges_per_snapshot={len(graph[0])}")
+    print(f"[signal] times[0..3]={signal_times[:3]}  (#loc={len(signal_values)}, nt={len(signal_values[0])})")
+    if do_binarize:
+        print(f"[signal] binarized with threshold={thr:.6g}")
+    else:
+        print("[signal] real‑valued (no binarization)")
 
-    # ---- Summarize results ---------------------------------------------------------------------
+    # ---- Call MoonLight monitor ---------------------------------------
+    try:
+        out = mon.monitor(graph_times, graph, signal_times, signal_values)
+    except TypeError as exc:
+        print("[MoonLight] ERROR: call to monitor(graph_times, graph, signal_times, signal_values) failed.")
+        print("  This usually means MoonLight changed its Python signature again.")
+        print(f"  Underlying error: {exc}")
+        sys.exit(1)
+    except Exception as exc:
+        print("[MoonLight] ERROR: unexpected exception from monitor(...):")
+        print(f"  {exc}")
+        sys.exit(1)
+
+    # ---- Summarize results --------------------------------------------
     summary = _summarize_spatiotemporal_output(out)
     summary.update(
         {
             "nx": nx,
             "ny": ny,
             "nt": nt,
-            "frames_source": str(args.field or (args.frames_dir or _find_default_frames_dir() or "")),
+            "field": str(args.field),
             "mls": str(args.mls),
             "formula": str(args.formula),
             "binarized": bool(do_binarize),
             "threshold": None if thr is None else float(thr),
+            "graph_times": graph_times,
         }
     )
 
-    # Human‑friendly printout
     print("\n[summary]")
     print(f"  output shape: {summary['out_shape']}")
     print(f"  per‑time length: {summary['per_time_len']}")
