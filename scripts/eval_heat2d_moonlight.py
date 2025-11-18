@@ -3,8 +3,7 @@ from __future__ import annotations
 
 This script is a small, dependency‑light evaluation harness used to *monitor*
 spatio‑temporal properties of 2‑D fields (e.g., a Heat2D simulation) with
-[MoonLight](https://github.com/MoonLightSuite/moonlight), via the helper
-glue in :mod:`physical_ai_stl.monitoring.moonlight_helper`.
+MoonLight, via the helper glue in :mod:`physical_ai_stl.monitoring.moonlight_helper`.
 
 Key features
 ------------
@@ -19,27 +18,6 @@ Key features
 - Fast and memory‑aware: uses memory‑mapped loads for large `.npy` files and
   avoids materializing copies unless necessary.
 - Produces a concise human‑readable summary and (optionally) a JSON artifact.
-
-Example
--------
-Evaluate the included *contain hotspot* spec (eventually, everywhere cool):
-
-    python scripts/eval_heat2d_moonlight.py \
-        --frames-dir results/heat2d \
-        --mls scripts/specs/contain_hotspot.mls --formula contain \
-        --out-json results/heat2d_moonlight.json
-
-This will **auto‑binarize** the field because the spec declares a boolean
-signal, using a threshold computed as `mean + k·std` (see `--z-k`) or a
-quantile threshold if `--quantile` is provided.
-
-Notes
------
-- If MoonLight (or the Python/JPype bridge) is unavailable, the script exits
-  gracefully with a short message so it can be invoked in environments without
-  Java during CI.
-- The graph is a 4‑neighborhood grid with configurable edge weight
-  (`--adj-weight`) to match common STREL examples.
 """
 
 import argparse
@@ -181,13 +159,52 @@ def _monitor_graph_time_series(mon: Any, graph: Any, sig: Any) -> Any:
       - monitor_graph_time_series(graph, sig)   (modern Pythonic)
       - monitorGraphTimeSeries(graph, sig)      (original CamelCase)
       - monitor(graph, sig)                     (older generic)
+      - monitor(time_array, sig)                (older non-spatial)
+      - monitor(graph, time_array, sig)         (older spatial)
     """
+    # Discrete time indices 0..T-1 inferred from the signal length.
+    try:
+        T = len(sig)
+    except TypeError:
+        T = None
+    time_array = list(range(T)) if T is not None else None
+
+    last_err: BaseException | None = None
+
     for name in ("monitor_graph_time_series", "monitorGraphTimeSeries", "monitor"):
         fn = getattr(mon, name, None)
-        if callable(fn):
-            return fn(graph, sig)
-    raise AttributeError("MoonLight monitor exposes none of "
-                         "'monitor_graph_time_series', 'monitorGraphTimeSeries', or 'monitor'.")
+        if not callable(fn):
+            continue
+
+        # Candidate calling conventions. We only treat TypeError as
+        # "wrong signature"; any other exception is considered real and
+        # bubbled up so you still see Java/shape errors.
+        candidates: list[tuple[Any, ...]] = []
+
+        # Newer Python bindings that know about graphs.
+        candidates.append((graph, sig))
+
+        # Sometimes the graph is baked into the script component already.
+        candidates.append((sig,))
+
+        if time_array is not None:
+            # Classic temporal monitor(time, values)
+            candidates.append((time_array, sig))
+            # Spatial‑temporal monitor(graph, time, values)
+            candidates.append((graph, time_array, sig))
+
+        for args in candidates:
+            try:
+                return fn(*args)
+            except TypeError as e:
+                # Signature mismatch → try next pattern.
+                last_err = e
+                continue
+
+    raise RuntimeError(
+        "Failed to call MoonLight monitor with any known signature; "
+        f"last error was: {last_err!r}"
+    )
 
 
 def _summarize_spatiotemporal_output(out: object) -> dict:
@@ -236,7 +253,8 @@ def main() -> None:
         "--frames-dir",
         type=Path,
         default=None,
-        help="Directory containing 2‑D .npy frames (one file per time).",    )
+        help="Directory containing 2‑D .npy frames (one file per time).",
+    )
     src.add_argument(
         "--glob",
         type=str,
@@ -247,7 +265,8 @@ def main() -> None:
         "--field",
         type=Path,
         default=None,
-        help="Single .npy file with a 3‑D array (nx, ny, nt) or (nt, nx, ny).",    )
+        help="Single .npy file with a 3‑D array (nx, ny, nt) or (nt, nx, ny).",
+    )
     src.add_argument(
         "--layout",
         type=str,
@@ -270,7 +289,7 @@ def main() -> None:
     spec.add_argument(
         "--formula",
         type=str,
-        default="contain",
+        default="contain_hotspot",
         help="Formula name inside the .mls script.",
     )
 
@@ -286,23 +305,27 @@ def main() -> None:
         "--binarize",
         dest="binarize",
         action="store_true",
-        help="Force binary signal (>= threshold → 1 else 0).",    )
+        help="Force binary signal (>= threshold → 1 else 0).",
+    )
     binz.add_argument(
         "--no-binarize",
         dest="binarize",
         action="store_false",
-        help="Force real-valued signal (no thresholding).",    )
+        help="Force real-valued signal (no thresholding).",
+    )
     binz.set_defaults(binarize=None)  # None = decide automatically from spec
     binz.add_argument(
         "--z-k",
         type=float,
         default=0.5,
-        help="Threshold = mean + k*std (ignored if --quantile is set).",    )
+        help="Threshold = mean + k*std (ignored if --quantile is set).",
+    )
     binz.add_argument(
         "--quantile",
         type=float,
         default=None,
-        help="If set, threshold = this quantile of all field values (0<q<1).",    )
+        help="If set, threshold = this quantile of all field values (0<q<1).",
+    )
     binz.add_argument(
         "--threshold",
         type=float,
@@ -327,7 +350,8 @@ def main() -> None:
         frames_dir = args.frames_dir or _find_default_frames_dir()
         if frames_dir is None:
             raise FileNotFoundError(
-                "No frames source found. Provide --field or --frames-dir (e.g., results/heat2d)."            )
+                "No frames source found. Provide --field or --frames-dir (e.g., results/heat2d)."
+            )
         frames = _glob_frames(frames_dir, args.glob)
         if not frames:
             raise FileNotFoundError(f"No frames matched {frames_dir}/{args.glob}")
@@ -347,15 +371,12 @@ def main() -> None:
     print(f"[spec]  mls={args.mls}  formula={args.formula}")
     print(f"[graph] 4-neighborhood grid weight={args.adj_weight}")
 
-    # ---- Ensure spec exists; create a minimal default if missing -------------------------------
+    # ---- Ensure spec exists; if not, bail with a clear message --------------------------------
     if not args.mls.exists():
-        args.mls.parent.mkdir(parents=True, exist_ok=True)
-        args.mls.write_text(
-            "signal { bool hot; }\n"
-            "domain boolean;\n"
-            "formula contain = eventually (!(somewhere (hot)));\n"
+        raise FileNotFoundError(
+            f"MoonLight spec file {args.mls} does not exist. "
+            "Create it or point --mls at the correct .mls file."
         )
-        print(f"[spec] Created default MoonLight spec at {args.mls}")
 
     mls = load_script_from_file(str(args.mls))
     mon = get_monitor(mls, args.formula)
@@ -399,7 +420,8 @@ def main() -> None:
     )
 
     # Human‑friendly printout
-    print("\n[summary]")
+    print("
+[summary]")
     print(f"  output shape: {summary['out_shape']}")
     print(f"  per‑time length: {summary['per_time_len']}")
     if summary["satisfied_eventually"]:
@@ -407,7 +429,8 @@ def main() -> None:
         print(f"  first satisfaction index: t={summary['first_satisfaction_index']}")
     else:
         print("  verdict: FAIL — property never satisfied over the horizon")
-    print(f"  per‑time min/max: {summary['per_time_min']:.3g} .. {summary['per_time_max']:.3g}\n")
+    print(f"  per‑time min/max: {summary['per_time_min']:.3g} .. {summary['per_time_max']:.3g}
+")
 
     # Optional JSON artifact
     if args.out_json is not None:
