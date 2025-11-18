@@ -167,7 +167,47 @@ python scripts/plot_ablations.py \
   --title "Diffusion‑1D: STL λ sweep"
 ```
 
-### 3.5 Framework hello‑worlds (optional)
+### 3.5 Diffusion 1D experiment (PDE + STL)
+
+To reproduce the diffusion‑1D results and figures end‑to‑end:
+
+1. **Train baseline and STL models**
+
+   ```bash
+   python scripts/run_experiment.py --config configs/diffusion1d_baseline.yaml
+   python scripts/run_experiment.py --config configs/diffusion1d_stl.yaml
+   ```
+
+2. **Run STL‑weight ablations**
+
+   ```bash
+   python scripts/run_ablations_diffusion.py --weights 0:10:6 --out results/diffusion1d_ablations.csv
+   ```
+
+3. **Evaluate robustness with RTAMT**
+
+   ```bash
+   # Replace the paths with the actual *_field.pt checkpoints produced above
+   python scripts/eval_diffusion_rtamt.py --ckpt <baseline_field_ckpt> --spec upper --u-max 1.0 --json-out results/diffusion1d_baseline_rtamt.json
+   python scripts/eval_diffusion_rtamt.py --ckpt <stl_field_ckpt>      --spec upper --u-max 1.0 --json-out results/diffusion1d_stl_rtamt.json
+   ```
+
+4. **Generate plots**
+
+   ```bash
+   python scripts/make_diffusion_plots.py
+   ```
+
+This creates:
+
+- `assets/diffusion1d_baseline_field.png`
+- `assets/diffusion1d_stl_field.png`
+- `assets/diffusion1d_training_loss.png`
+- `assets/diffusion1d_training_robustness.png`
+- `assets/diffusion1d_training_loss_components_stl.png`
+- `assets/diffusion1d_robust_vs_lambda.png`
+
+### 3.6 Framework hello‑worlds (optional)
 
 Confirm the physics‑ML stacks import and run simple demos:
 
@@ -220,7 +260,7 @@ results/
 └── rtamt_summary.json
 ```
 
-Figures are written under `figs/` by plot scripts.
+Figures are written under `figs/` and, for the core diffusion‑1D PDE + STL plots, under `assets/` by plot scripts.
 
 ---
 
@@ -289,4 +329,4 @@ docker rmi physical-ai-stl:cpu || true
 
 ---
 
-If anything here diverges from your platform, please open an issue with your OS/Python, the command you ran, and the stderr/stdout. Reproducibility bugs are treated as first‑class. 
+If anything here diverges from your platform, please open an issue with your OS/Python, the command you ran, and the stderr/stdout. Reproducibility bugs are treated as first‑class.
