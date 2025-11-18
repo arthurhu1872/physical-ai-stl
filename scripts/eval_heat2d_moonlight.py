@@ -3,7 +3,8 @@ from __future__ import annotations
 
 This script is a small, dependency‑light evaluation harness used to *monitor*
 spatio‑temporal properties of 2‑D fields (e.g., a Heat2D simulation) with
-MoonLight, via the helper glue in :mod:`physical_ai_stl.monitoring.moonlight_helper`.
+[MoonLight](https://github.com/MoonLightSuite/moonlight), via the helper
+glue in :mod:`physical_ai_stl.monitoring.moonlight_helper`.
 
 Key features
 ------------
@@ -18,6 +19,27 @@ Key features
 - Fast and memory‑aware: uses memory‑mapped loads for large `.npy` files and
   avoids materializing copies unless necessary.
 - Produces a concise human‑readable summary and (optionally) a JSON artifact.
+
+Example
+-------
+Evaluate the included *contain hotspot* spec (eventually, everywhere cool):
+
+    python scripts/eval_heat2d_moonlight.py \
+        --frames-dir results/heat2d \
+        --mls scripts/specs/contain_hotspot.mls --formula contain \
+        --out-json results/heat2d_moonlight.json
+
+This will **auto‑binarize** the field because the spec declares a boolean
+signal, using a threshold computed as `mean + k·std` (see `--z-k`) or a
+quantile threshold if `--quantile` is provided.
+
+Notes
+-----
+- If MoonLight (or the Python/JPype bridge) is unavailable, the script exits
+  gracefully with a short message so it can be invoked in environments without
+  Java during CI.
+- The graph is a 4‑neighborhood grid with configurable edge weight
+  (`--adj-weight`) to match common STREL examples.
 """
 
 import argparse
@@ -155,56 +177,63 @@ def _slice_time(u: np.ndarray, t_start: int | None, t_end: int | None) -> np.nda
 def _monitor_graph_time_series(mon: Any, graph: Any, sig: Any) -> Any:
     """Robustly call into MoonLight monitor across API variants.
 
-    Tries, in this order:
-      - monitor_graph_time_series(graph, sig)   (modern Pythonic)
-      - monitorGraphTimeSeries(graph, sig)      (original CamelCase)
-      - monitor(graph, sig)                     (older generic)
-      - monitor(time_array, sig)                (older non-spatial)
-      - monitor(graph, time_array, sig)         (older spatial)
-    """
-    # Discrete time indices 0..T-1 inferred from the signal length.
-    try:
-        T = len(sig)
-    except TypeError:
-        T = None
-    time_array = list(range(T)) if T is not None else None
+    We try several method names and argument patterns to handle different
+    MoonLight Python bindings:
 
-    last_err: BaseException | None = None
+    - monitor_graph_time_series(graph, signal)
+    - monitorGraphTimeSeries(graph, signal)
+    - monitor(graph, signalTimeArray, signalValues)
+    - monitor(graph, signal)           (older variants)
+    - monitor(signalTimeArray, signal) (non-graph variants, just in case)
+    """
+    # Derive a simple time array from the number of time steps in `sig`.
+    # field_to_signal returns a list-of-lists structure: [t][node][feature].
+    try:
+        n_times = len(sig)
+    except TypeError:
+        n_times = None
+
+    time_array = list(range(n_times)) if n_times is not None else None
+
+    last_exc: Exception | None = None
 
     for name in ("monitor_graph_time_series", "monitorGraphTimeSeries", "monitor"):
         fn = getattr(mon, name, None)
         if not callable(fn):
             continue
 
-        # Candidate calling conventions. We only treat TypeError as
-        # "wrong signature"; any other exception is considered real and
-        # bubbled up so you still see Java/shape errors.
-        candidates: list[tuple[Any, ...]] = []
+        # Candidate call patterns, from most to least specific.
+        patterns: list[tuple[Any, ...]] = []
 
-        # Newer Python bindings that know about graphs.
-        candidates.append((graph, sig))
+        # Graph + signal only (modern helpers often wrap the time array internally).
+        patterns.append((graph, sig))
 
-        # Sometimes the graph is baked into the script component already.
-        candidates.append((sig,))
-
+        # Graph + explicit time array + signal values.
         if time_array is not None:
-            # Classic temporal monitor(time, values)
-            candidates.append((time_array, sig))
-            # Spatial‑temporal monitor(graph, time, values)
-            candidates.append((graph, time_array, sig))
+            patterns.append((graph, time_array, sig))
 
-        for args in candidates:
+        # Time array + signal (non-graph variant).
+        if time_array is not None:
+            patterns.append((time_array, sig))
+
+        # Just the signal (some older scalar specs).
+        patterns.append((sig,))
+
+        for args in patterns:
             try:
                 return fn(*args)
             except TypeError as e:
-                # Signature mismatch → try next pattern.
-                last_err = e
+                # Wrong signature, try the next pattern.
+                last_exc = e
                 continue
 
-    raise RuntimeError(
-        "Failed to call MoonLight monitor with any known signature; "
-        f"last error was: {last_err!r}"
+    # If we get here, nothing worked.
+    msg = (
+        "Failed to call MoonLight monitor with any known signature. "
+        "Last error was: "
+        f"{last_exc!r}"
     )
+    raise RuntimeError(msg)
 
 
 def _summarize_spatiotemporal_output(out: object) -> dict:
@@ -289,7 +318,7 @@ def main() -> None:
     spec.add_argument(
         "--formula",
         type=str,
-        default="contain_hotspot",
+        default="contain",
         help="Formula name inside the .mls script.",
     )
 
@@ -371,12 +400,15 @@ def main() -> None:
     print(f"[spec]  mls={args.mls}  formula={args.formula}")
     print(f"[graph] 4-neighborhood grid weight={args.adj_weight}")
 
-    # ---- Ensure spec exists; if not, bail with a clear message --------------------------------
+    # ---- Ensure spec exists; create a minimal default if missing -------------------------------
     if not args.mls.exists():
-        raise FileNotFoundError(
-            f"MoonLight spec file {args.mls} does not exist. "
-            "Create it or point --mls at the correct .mls file."
+        args.mls.parent.mkdir(parents=True, exist_ok=True)
+        args.mls.write_text(
+            "signal { bool hot; }\n"
+            "domain boolean;\n"
+            "formula contain = eventually (!(somewhere (hot)));\n"
         )
+        print(f"[spec] Created default MoonLight spec at {args.mls}")
 
     mls = load_script_from_file(str(args.mls))
     mon = get_monitor(mls, args.formula)
@@ -420,8 +452,7 @@ def main() -> None:
     )
 
     # Human‑friendly printout
-    print("
-[summary]")
+    print("\n[summary]")
     print(f"  output shape: {summary['out_shape']}")
     print(f"  per‑time length: {summary['per_time_len']}")
     if summary["satisfied_eventually"]:
@@ -429,8 +460,7 @@ def main() -> None:
         print(f"  first satisfaction index: t={summary['first_satisfaction_index']}")
     else:
         print("  verdict: FAIL — property never satisfied over the horizon")
-    print(f"  per‑time min/max: {summary['per_time_min']:.3g} .. {summary['per_time_max']:.3g}
-")
+    print(f"  per‑time min/max: {summary['per_time_min']:.3g} .. {summary['per_time_max']:.3g}\n")
 
     # Optional JSON artifact
     if args.out_json is not None:
