@@ -1,6 +1,5 @@
 signal { bool hot; }
 
-// NEW: define a space so we’re allowed to use spatial operators like `somewhere`
 space {
   edges { real dist; }
 }
@@ -12,5 +11,8 @@ formula quench          = globally(nowhere_hot);
 formula contain         = eventually(quench);
 formula contain_hotspot = contain;
 
-formula quench_for(real tau)                        = globally[0, tau](nowhere_hot);
-formula contain_within(real deadline, real tau)     = eventually[0, deadline](globally[0, tau](nowhere_hot));
+formula quench_for(real tau) =
+  globally[0, tau](nowhere_hot);
+
+formula contain_within(real deadline, real tau) =
+  eventually[0, deadline](globally[0, tau](nowhere_hot));
