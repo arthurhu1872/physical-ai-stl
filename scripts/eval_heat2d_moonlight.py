@@ -93,13 +93,26 @@ def _read_text(path: Path) -> str:
 
 
 def _spec_declares_boolean_signal(mls_text: str) -> bool:
-    """Heuristically detect boolean semantics from an MLS script.
+    """Detect whether the script declares a *boolean-valued* signal.
 
-    We check for either a `bool` signal declaration or `domain boolean;`.
+    We look for a `bool` type inside the `signal { ... }` block.
+
+    Note:
+        `domain boolean;` controls the semantics of the *output* (boolean
+        vs robustness) and does **not** by itself require a boolean-valued
+        input signal, so we deliberately ignore it here.
     """
-    mt_sig = re.search(r"signal\s*\{[^}]*\bbool\b", mls_text, flags=re.IGNORECASE | re.DOTALL)
-    mt_dom = re.search(r"domain\s+boolean\s*;", mls_text, flags=re.IGNORECASE)
-    return bool(mt_sig or mt_dom)
+    mt_sig = re.search(
+        r"signal\s*\{[^}]*bool",
+        mls_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return bool(mt_sig)
+
+
+def _spec_uses_boolean_domain(mls_text: str) -> bool:
+    """Return True if the script explicitly sets `domain boolean;`."""
+    return bool(re.search(r"domain\s+boolean\s*;", mls_text, flags=re.IGNORECASE))
 
 
 def _auto_threshold(u: np.ndarray, z_k: float | None, quantile: float | None) -> float:
@@ -279,7 +292,7 @@ def main() -> None:
         help="Formula name inside the .mls script.",
     )
 
-    binz = ap.add_argument_group("binarization (if spec expects boolean semantics)")
+    binz = ap.add_argument_group("binarization (if spec expects boolean-valued signal)")
     binz.add_argument(
         "--binarize",
         dest="binarize",
@@ -330,27 +343,48 @@ def main() -> None:
 
     # ---- Load field ----------------------------------------------------
     u, nx_auto, ny_auto, nt = _load_field_from_npy(args.field, layout=args.layout)
-    if args.nx is not None:
-        nx = int(args.nx)
-    else:
-        nx = nx_auto
-    if args.ny is not None:
-        ny = int(args.ny)
-    else:
-        ny = ny_auto
+
+    if args.nx is not None and int(args.nx) != nx_auto:
+        raise ValueError(
+            f"--nx={args.nx} does not match field's first dimension nx_auto={nx_auto}"
+        )
+    if args.ny is not None and int(args.ny) != ny_auto:
+        raise ValueError(
+            f"--ny={args.ny} does not match field's second dimension ny_auto={ny_auto}"
+        )
+
+    nx = nx_auto if args.nx is None else int(args.nx)
+    ny = ny_auto if args.ny is None else int(args.ny)
 
     # Optional time slice
     u = _slice_time(u, args.t_start, args.t_end)
     nt = int(u.shape[-1])
 
+    # Basic stats on the (optionally sliced) field
+    flat_u = np.asarray(u, dtype=float).reshape(-1)
+    field_min = float(flat_u.min())
+    field_max = float(flat_u.max())
+    field_mean = float(flat_u.mean())
+    field_std = float(flat_u.std(ddof=0))
+
     print(f"[input] field: shape=(nx={nx}, ny={ny}, nt={nt})")
+    print(
+        "[input] value stats: "
+        f"min={field_min:.6g}, max={field_max:.6g}, "
+        f"mean={field_mean:.6g}, std={field_std:.6g}"
+    )
     print(f"[spec]  mls={args.mls}  formula={args.formula}")
 
     # ---- Load spec via MoonLight --------------------------------------
     if not args.mls.exists():
         raise FileNotFoundError(f"MoonLight spec not found: {args.mls}")
     mls_text = _read_text(args.mls)
-    spec_is_boolean = _spec_declares_boolean_signal(mls_text)
+    spec_has_bool_signal = _spec_declares_boolean_signal(mls_text)
+    spec_has_boolean_domain = _spec_uses_boolean_domain(mls_text)
+
+    domain_str = "boolean" if spec_has_boolean_domain else "min-max (robustness) / default"
+    print(f"[spec]  declares boolean-valued signal: {spec_has_bool_signal}")
+    print(f"[spec]  domain: {domain_str}")
 
     try:
         script_obj = ScriptLoader.loadFromFile(str(args.mls))
@@ -369,9 +403,9 @@ def main() -> None:
     # ---- Build graph and signal ---------------------------------------
     graph_times, graph = build_grid_graph(nx, ny, weight=float(args.adj_weight))
 
-    # Decide binarization (boolean semantics → default True)
+    # Decide binarization (boolean-valued input signal → default True)
     if args.binarize is None:
-        do_binarize = spec_is_boolean
+        do_binarize = spec_has_bool_signal
     else:
         do_binarize = bool(args.binarize)
 
@@ -383,11 +417,28 @@ def main() -> None:
     else:
         thr = None
 
+    # Binarization diagnostics (before building the signal)
+    if do_binarize and thr is not None:
+        n_total = int(flat_u.size)
+        n_ge = int(np.count_nonzero(flat_u >= thr))
+        frac_ge = n_ge / n_total if n_total > 0 else float("nan")
+        print(
+            f"[signal] binarization enabled (threshold={thr:.6g}): "
+            f"{n_ge}/{n_total} ≈ {frac_ge:.3%} samples >= threshold"
+        )
+        if n_ge == 0:
+            print("[signal] WARNING: threshold is above the maximum field value → all zeros after binarization.")
+        elif n_ge == n_total:
+            print("[signal] WARNING: threshold is at or below the minimum field value → all ones after binarization.")
+    else:
+        n_ge = None
+        frac_ge = None
+
     signal_times, signal_values = field_to_signal(u, threshold=thr, dt=float(args.dt))
 
     print(f"[graph] times={graph_times} (len={len(graph_times)})  edges_per_snapshot={len(graph[0])}")
     print(f"[signal] times[0..3]={signal_times[:3]}  (#loc={len(signal_values)}, nt={len(signal_values[0])})")
-    if do_binarize:
+    if do_binarize and thr is not None:
         print(f"[signal] binarized with threshold={thr:.6g}")
     else:
         print("[signal] real‑valued (no binarization)")
@@ -418,6 +469,15 @@ def main() -> None:
             "binarized": bool(do_binarize),
             "threshold": None if thr is None else float(thr),
             "graph_times": graph_times,
+            "field_min": field_min,
+            "field_max": field_max,
+            "field_mean": field_mean,
+            "field_std": field_std,
+            "n_samples": int(flat_u.size),
+            "n_samples_ge_threshold": None if n_ge is None else int(n_ge),
+            "fraction_ge_threshold": None if frac_ge is None else float(frac_ge),
+            "spec_declares_bool_signal": bool(spec_has_bool_signal),
+            "spec_uses_boolean_domain": bool(spec_has_boolean_domain),
         }
     )
 
