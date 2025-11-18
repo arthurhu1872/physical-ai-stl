@@ -119,6 +119,9 @@ all = [
   "types-PyYAML>=6.0.12.20240917",
 ]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.version]
 path = "src/physical_ai_stl/__init__.py"
 
