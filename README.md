@@ -2,7 +2,7 @@
 
 *A minimal, fast, and reproducible scaffold for experimenting with **Signal Temporal Logic (STL)** and **spatio‑temporal logics (STREL/SpaTiaL)** on physics‑based ML models (a.k.a. “physical AI”): neural ODE/PDE surrogates, PINNs/DeepONets/FNOs, and differentiable predictive control.*
 
-> **Course context.** Built for **Vanderbilt CS‑3860‑01 Undergraduate Research (Fall 2025)** with **Prof. Taylor Thomas Johnson**. Scope: prototype STL/STREL monitoring and (optionally) soft enforcement within physics‑aware ML frameworks; compare a few representative stacks; run on small, CPU‑friendly demos; deliver a concise end‑of‑semester report.
+> **Course context.** Built for **Vanderbilt CS‑3860‑01 Undergraduate Research (Fall 2025)** with **Prof. Taylor Thomas Johnson**. Scope: prototype STL/STREL monitoring and (optionally) soft enforcement within physics‑aware ML frameworks; compare a few representative stacks; run on small, CPU‑friendly demos (1‑D diffusion, 2‑D heat, Burgers, Neuromancer); and deliver a concise end‑of‑semester report with several concrete examples.
 
 ---
 
@@ -30,7 +30,7 @@ Requirements: **Python ≥ 3.10**, macOS/Linux/WSL (Windows works; SpaTiaL’s
 
 ```bash
 # 1) Create venv and install minimal runtime + dev test deps (tiny install)
-python -m venv .venv && source .venv/bin/activate  # on Windows: .venv\Scripts\activate
+python -m venv .venv && source .venv/bin/activate  # on Windows: .venv\Scripts ctivate
 python -m pip install -r requirements.txt -r requirements-dev.txt
 
 # 2) (Optional) Install extras — STL/STREL + physics‑ML stacks (may pull PyTorch)
@@ -56,6 +56,8 @@ docker build --build-arg WITH_EXTRAS=1 -t physical-ai-stl:cpu .
 docker run --rm -it physical-ai-stl:cpu
 ```
 
+For full, step‑by‑step reproducibility (environment probe, experiment commands, artifact layout), see **[docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md)**.
+
 ---
 
 ## 🧭 Repository map
@@ -66,36 +68,124 @@ src/physical_ai_stl/
   monitoring/         # RTAMT + MoonLight helpers (and differentiable STL ‘stl_soft’)
   monitors/           # simple spec snippets (STL/STREL) for quick reuse
   datasets/           # small synthetic datasets (e.g., STLnet‑style toy generator)
-  experiments/        # 1D diffusion, 2D heat (minimal CPU demos)
+  experiments/        # 1D diffusion, 2D heat, Burgers (minimal CPU demos)
   physics/            # PDE utilities for toy problems
   training/           # light train/eval scaffolding (grids, seeds)
 tests/                # all tests are skip‑aware for optional heavy deps
-configs/, scripts/, docs/ (lightweight helpers)
+scripts/              # CLI entrypoints (train/eval, env probe, plotting, specs)
+configs/              # YAML configs for run_experiment.py and friends
+docs/                 # reproducibility guide, framework survey, report outline, etc.
+assets/               # tiny sample assets (see assets/README.md)
 ```
 
-**Design for speed & stability**
-- *Lean base install* (`requirements.txt`) keeps CI and first‑run fast; heavy stacks live in `requirements-extra.txt`.
-- *Optional dependency pattern* throughout (`pytest.importorskip`, lazy imports) lets tests pass even without extras.
-- *CPU‑by‑default*; CUDA never auto‑downloads. Torch CPU wheels are used unless you opt into GPU yourself.
-- *Determinism* helpers (`utils/seed.py`) for reproducibility on small demos.
+## 🧪 What runs now (examples & scripts)
 
----
+All demos are intentionally tiny; they run in seconds on CPU and either have tests under `tests/` or are wired through small scripts in `scripts/`. Full step‑by‑step commands and expected artifacts live in [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md).
 
-## 🧪 What already runs (baseline demos)
+### 1. Environment + sanity checks
 
-All demos are tiny; expect seconds on CPU.
+- **Environment probe** — `scripts/check_env.py`  
+  Prints a one‑page summary of Python, NumPy, optional stacks (Neuromancer / PhysicsNeMo / TorchPhysics, RTAMT / MoonLight / SpaTiaL), and basic hardware. Can emit Markdown or JSON for attaching to a report.
 
-- **STL soft penalties** (`monitoring/stl_soft.py`) — smooth min/max & temporal ops; unit tests in `tests/test_stl_soft.py`.
-- **RTAMT monitor “hello”** (`monitors/rtamt_hello.py`) — evaluate `G_[a,b](u ≤ u_max)` on short traces; tested in `tests/test_rtamt_hello.py`.
-- **MoonLight STREL “hello”** (`monitors/moonlight_hello.py`, `monitors/moonlight_strel_hello.py`) — requires **Java 21+**; tests skip if missing.
-- **SpaTiaL spec “hello”** (`monitors/spatial_demo.py`) — Linux/macOS only for MONA‑based planner; tests skip on Windows.
-- **Framework smoke tests**:
-  - `frameworks/neuromancer_hello.py` (`tests/test_neuromancer_hello.py`)
-  - `frameworks/physicsnemo_hello.py` (`tests/test_physicsnemo_hello.py`)
-  - `frameworks/torchphysics_hello.py` (`tests/test_torchphysics_hello.py`)
-- **Toy PDEs**: 1D diffusion & 2D heat (`experiments/`, `physics/`) with monitors; see `tests/test_pde_example.py`, `tests/test_pde_robustness.py`.
+  ```bash
+  python scripts/check_env.py --md     # pretty, human‑readable
+  python scripts/check_env.py --json > results/env_probe.json
+  ```
 
-> CI runs `pytest -q` on Ubuntu and only installs the *lean* deps. Optional stacks are tested locally/Docker.
+- **Fast unit tests** — `pytest -q`  
+  - Core logic: STL soft semantics, PDE helpers, synthetic STLnet dataset, etc.  
+  - Tooling: RTAMT, MoonLight, SpaTiaL “hello” monitors (auto‑skip if deps missing).  
+  - Frameworks: Neuromancer / PhysicsNeMo / TorchPhysics import‑level demos.
+
+### 2. STL / STREL monitors (“hello” examples)
+
+- **Differentiable STL (“soft” semantics)** — `monitoring/stl_soft.py`  
+  Smooth min/max and temporal operators, with tests in `tests/test_stl_soft.py`. Used by the 1‑D diffusion / Burgers / Neuromancer training scripts.
+
+- **RTAMT STL monitor** — `monitors/rtamt_hello.py` + `tests/test_rtamt_hello.py`  
+  Evaluates specs such as `G_[a,b](u ≤ u_max)` on short traces; exercises offline robustness via RTAMT.
+
+- **MoonLight STREL “hello”** — `monitors/moonlight_hello.py`, `monitors/moonlight_strel_hello.py`, tests `test_moonlight_hello.py`, `test_moonlight_strel.py`  
+  Requires Java 21+; demonstrates STREL monitoring on small grid graphs.
+
+- **SpaTiaL demo** — `monitors/spatial_demo.py`, tests `test_spatial_spec_hello.py`, `test_spatial_spec_demo.py`  
+  Object‑centric spatio‑temporal specs and simple planning; MONA/`ltlf2dfa` recommended (Linux/macOS).
+
+### 3. Physics‑based ML experiments
+
+These are the examples requested for the course project: concrete systems with STL / spatial STL monitoring and plots once you run them.
+
+**1‑D diffusion PINN + STL bound (RTAMT)**
+
+- Code: `experiments/diffusion1d.py`  
+- Configs: `configs/diffusion1d_baseline.yaml`, `configs/diffusion1d_stl.yaml`  
+- Launcher: `scripts/run_experiment.py`, STL‑focused trainer: `scripts/train_diffusion_stl.py`  
+- STL integration:
+  - Differentiable “always‑below” safety penalty via `stl_soft` during training.
+  - Post‑hoc auditing with RTAMT via `scripts/eval_diffusion_rtamt.py`.
+
+Typical workflow (see also `docs/REPRODUCIBILITY.md §3.1–3.4`):
+
+```bash
+# Baseline PINN (no STL penalty)
+python scripts/run_experiment.py --config configs/diffusion1d_baseline.yaml
+
+# With soft STL penalty
+python scripts/run_experiment.py --config configs/diffusion1d_stl.yaml
+
+# RTAMT audit on the saved field
+python scripts/eval_diffusion_rtamt.py   --field results/diffusion1d/..._field.pt   --u-max 1.0 --dt 0.01   --out-json results/diffusion1d_rtamt.json
+```
+
+Artifacts (per run) go under `results/` (logs, checkpoints, grid tensor) and can be turned into figures via `scripts/plot_ablations.py`.
+
+**2‑D heat equation PINN + STREL containment (MoonLight)**
+
+- Code: `experiments/heat2d.py`, helper `physics/heat2d.py`  
+- Dataset generator: `scripts/gen_heat2d_frames.py`  
+- Trainer / auditor: `scripts/train_heat2d_strel.py`, `scripts/eval_heat2d_moonlight.py`  
+- Spec: STREL script `scripts/specs/contain_hotspot.mls` (e.g., “hotspot dissipates / stays localized”).
+
+These scripts simulate 2‑D temperature fields on a small grid, train a PINN surrogate, and then audit spatio‑temporal properties with MoonLight. When run, they populate:
+
+```text
+results/heat2d/
+  frames/            # small .npy field snapshots over time
+  audit.json         # STREL robustness summary from MoonLight
+```
+
+**1‑D viscous Burgers’ PINN + STL safety constraint (TorchPhysics)**
+
+- Script: `scripts/train_burgers_torchphysics.py`  
+- Framework: TorchPhysics PINN with STL‑style `|u| ≤ u_max` constraint.  
+- Uses a differentiable STL penalty plus post‑hoc robust satisfaction check; prints ρ (robustness) and writes a packed field tensor for later monitoring / plotting.
+
+This provides a second PDE example beyond diffusion/heat, now in TorchPhysics.
+
+**Neuromancer sine / ODE demo + STL bound**
+
+- Framework demos: `frameworks/neuromancer_hello.py`, `frameworks/neuromancer_stl_demo.py`  
+- Training script: `scripts/train_neuromancer_stl.py` with config `configs/neuromancer_sine_bound.yaml`.
+
+This is a small non‑PDE example that shows how to attach STL penalties to Neuromancer objectives and audit them with RTAMT.
+
+**Synthetic STLnet‑style time‑series**
+
+- Dataset: `datasets/stlnet_synthetic.py`  
+- Tests: `tests/test_stlnet_dataset.py`
+
+Generates small, STL‑labeled traces to sanity‑check robustness semantics and to serve as a simple 1‑D example (in the spirit of STLnet) alongside the PDE fields.
+
+### 4. Framework “hello‑worlds”
+
+Small import‑level or toy demos that ensure optional frameworks are wired correctly:
+
+- `frameworks/neuromancer_hello.py` — basic constrained optimization demo; tested in `test_neuromancer_hello.py`.  
+- `frameworks/physicsnemo_hello.py` — import‑only PhysicsNeMo smoke test; `test_physicsnemo_hello.py`.  
+- `frameworks/torchphysics_hello.py` — TorchPhysics PINN toy problem; `test_torchphysics_hello.py`.  
+- `frameworks/spatial_spec_hello.py` — quick SpaTiaL usage example; covered by SpaTiaL tests.
+
+> CI runs `pytest -q` on Ubuntu and only installs the *lean* deps. Optional stacks (Neuromancer, PhysicsNeMo, TorchPhysics, RTAMT, MoonLight, SpaTiaL) are intended for local / Docker runs and are guarded so tests skip cleanly if they are not present.
 
 ---
 
@@ -107,7 +197,7 @@ Run RTAMT (STL) and MoonLight (STREL) on model outputs and log *robustness* valu
 **B. Soft constraints in training** (lightweight, differentiable, *no guarantees*):  
 Use `stl_soft` to approximate STL robustness (smooth min/max via log‑sum‑exp / softplus), then add to loss:
 - **Neuromancer**: plug robustness penalties into `nm.loss.PenaltyLoss` (naturally supports constrained training).  
-- **TorchPhysics**: add STL penalty into the Lightning loss alongside PDE residuals.  
+- **TorchPhysics**: add STL penalty into the Lightning loss alongside PDE residuals (see the Burgers’ script).  
 - **PhysicsNeMo**: add a callback/head computing soft robustness; aggregate into Hydra‑configured loss.
 
 **C. Spatial logic** (STREL/SpaTiaL):  
@@ -120,12 +210,12 @@ For object/sensor graphs: specify relations like **“no more than K sensors wit
 
 | Component | What it is (one‑liner) | Install notes |
 |---|---|---|
-| **Neuromancer** | PyTorch SciML library for constrained optimization, PINNs, DPC | `pip install neuromancer` or clone; docs & examples available. |
-| **PhysicsNeMo** | NVIDIA’s (ex‑Modulus) physics‑AI stack; neural operators/PINNs with Hydra tooling | `pip install nvidia-physicsnemo` (Sym add‑on: `nvidia-physicsnemo-sym`); or use NGC container. |
+| **Neuromancer** | PyTorch SciML library for constrained optimization, physics‑informed models, and differentiable predictive control | `pip install neuromancer` or clone; see docs and examples. |
+| **PhysicsNeMo** | NVIDIA’s (ex‑Modulus) physics‑AI stack; neural operators/PINNs with Hydra tooling | `pip install nvidia-physicsnemo` (Sym add‑on: `nvidia-physicsnemo-sym`); or use the NGC container. |
 | **TorchPhysics** | Mesh‑free PDE library with PINNs/DeepRitz/DeepONets/FNO | `pip install torchphysics` (needs PyTorch ≥ 2.0). |
-| **RTAMT** | STL monitoring (offline & online; bounded‑future online) with robustness semantics | `pip install rtamt` (optional C++ backend). |
-| **MoonLight (STREL)** | Java engine + Python package for spatio‑temporal monitoring (STREL) | `pip install moonlight` + **Java 21+** in PATH. |
-| **SpaTiaL** | Spatio‑temporal object relations + planning/monitoring | `pip install spatial-spec` (+ MONA/`ltlf2dfa`; Linux/macOS recommended). |
+| **RTAMT** | STL monitoring (offline & bounded‑future online) with robustness semantics | `pip install rtamt` (optional C++ backend). |
+| **MoonLight (STREL)** | Java engine + Python package for spatio‑temporal monitoring (STREL) | `pip install moonlight` + **Java 21+** on `PATH`. |
+| **SpaTiaL** | Spatio‑temporal specifications over objects/relations; small planner | `pip install spatial-spec` (+ MONA/`ltlf2dfa`; Linux/macOS recommended). |
 
 ---
 
@@ -141,7 +231,7 @@ Pick **one primary** + **one backup** early in the semester.
    - Runs entirely on CPU in seconds.
 
 2) **2D Darcy flow (neural operator baseline)** — *PhysicsNeMo Sym example*  
-   - Use FNO tutorial datasets (per docs) and monitor pressure/flux bounds or boundary conditions.  
+   - Use FNO tutorial datasets (per PhysicsNeMo docs) and monitor pressure/flux bounds or boundary conditions.  
    - Example specs: `G_[0,T] (p_max − p(x,t) ≥ 0 ∧ p(x,t) − p_min ≥ 0)`; `G_[0,T] (‖∇p‖ ≤ c)`.
 
 3) **Urban sensor networks (traffic speed)** — *graph sensors, natural STREL*  
@@ -151,7 +241,7 @@ Pick **one primary** + **one backup** early in the semester.
      *Bounded propagation:* congestion waves propagate slower than `v_max` across adjacency.
 
 > Alternative: **Air‑quality sensors** (e.g., PM2.5 city networks) with STREL “surround/reach” constraints (see STLnet and related smart‑city work).  
-> *Scaling option later:* **LargeST** (NeurIPS 2023) provides statewide, long‑horizon traffic with metadata—use only after core pipeline is proven on small sets.
+> *Scaling option later:* **LargeST** (NeurIPS 2023) provides statewide, long‑horizon traffic with metadata—use only after the core pipeline is proven on small sets.
 
 ---
 
@@ -201,7 +291,8 @@ penalty = (-soft_G_always_leq(u_pred, umax)).relu().mean()  # add to loss
 - For MoonLight (STREL), ensure **Java 21+** is installed and on `PATH`.  
 - SpaTiaL relies on **MONA/ltlf2dfa** and is best on Linux/macOS (its automaton planner is skipped on Windows in tests).  
 - Keep datasets **small** (e.g., 16–64² grids, 100–500 samples) for rapid iteration; scale later.  
-- Use `pytest -q -k ...` to run focused subsets; CI mirrors this minimal footprint.
+- Use `pytest -q -k ...` to run focused subsets; CI mirrors this minimal footprint.  
+- Store artifacts under `results/` (logs, checkpoints, fields) and `figs/` (plots), as described in [docs/REPRODUCIBILITY.md](docs/REPRODUCIBILITY.md).
 
 ---
 
