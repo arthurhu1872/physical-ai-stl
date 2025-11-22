@@ -262,7 +262,9 @@ def _unit_samples(
     if m not in {"sobol", "uniform", "rand", "random", "lhs"}:
         raise ValueError("method must be one of {'sobol','uniform','rand','random','lhs'}")
     if m == "sobol" and dim > 0:
-        engine = torch.quasirandom.SobolEngine(dim, scramble=True, seed=seed)
+        # SobolEngine requires a concrete integer seed; default to 0 when None.
+        sobol_seed = 0 if seed is None else int(seed)
+        engine = torch.quasirandom.SobolEngine(dim, scramble=True, seed=sobol_seed)
         u = engine.draw(num)  # CPU tensor in [0,1)
     elif m in {"uniform", "rand", "random"}:
         if seed is not None:
